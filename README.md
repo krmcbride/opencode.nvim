@@ -16,45 +16,42 @@ A simple Neovim plugin for [opencode](https://github.com/anomalyco/opencode) int
 
 ```lua
 {
-  "your-username/opencode.nvim",
+  "krmcbride/opencode.nvim",
   dependencies = {
     { "folke/snacks.nvim", opts = { terminal = { enabled = true } } },
   },
-  -- Set options before plugin loads
   init = function()
-    ---@type opencode.Opts
     vim.g.opencode_opts = {
-      -- port = nil,        -- nil = auto-discover, number = fixed port
-      -- auto_reload = true,
-      -- terminal = {
-      --   cmd = "opencode --port",
-      --   snacks = { ... },
-      -- },
+      terminal = {
+        -- Use --continue to resume the last session on startup
+        cmd = "opencode --port --continue",
+      },
     }
-    -- Required for auto-reload
+    -- Required for auto-reload when opencode edits files
     vim.o.autoread = true
   end,
-  -- Lazy-load on keymap
   keys = {
-    { "<C-.>", function() require("opencode").toggle() end, mode = { "n", "t" }, desc = "Toggle opencode" },
-    { "<leader>oa", function() require("opencode").prompt("@this ") end, mode = { "n", "x" }, desc = "Add to prompt" },
-    { "<leader>od", function() require("opencode").prompt("Fix @diagnostics", { submit = true }) end, desc = "Fix diagnostics" },
-    { "<leader>on", function() require("opencode").command("session.new") end, desc = "New session" },
-    { "<leader>ol", function() require("opencode").command("session.list") end, desc = "List sessions" },
+    { "<leader>ac", function() require("opencode").toggle() end, mode = { "n", "t" }, desc = "Toggle opencode" },
+    { "<leader>aa", function() require("opencode").prompt("@this ") end, mode = { "n", "x" }, desc = "Add to prompt" },
+    { "<leader>ab", function() require("opencode").prompt("@buffer") end, desc = "Add buffer to prompt" },
+    { "<leader>ad", function() require("opencode").prompt("@diagnostics") end, desc = "Add diagnostics to prompt" },
   },
 }
 ```
 
+> **Note:** The trailing space in `@this ` dismisses opencode's file picker, preserving the line number in the reference.
+
 ## Configuration
 
+All options with their defaults:
+
 ```lua
----@type opencode.Opts
 vim.g.opencode_opts = {
   port = nil,           -- Fixed port, or nil to auto-discover
-  auto_reload = true,   -- Reload buffers on file.edited events
+  auto_reload = true,   -- Reload buffers when opencode edits files
   terminal = {
-    cmd = "opencode --port",
-    snacks = {
+    cmd = "opencode --port",  -- Add --continue to resume last session
+    snacks = {                -- Options passed to snacks.terminal
       auto_close = true,
       win = {
         position = "right",
@@ -79,18 +76,25 @@ require("opencode").status()  -- Show terminal and SSE connection status
 ### Prompts
 
 ```lua
--- Send a prompt with context expansion
-require("opencode").prompt("Explain @this", { submit = true })
-require("opencode").prompt("Fix @diagnostics", { clear = true, submit = true })
+-- Add context to the prompt (build up context, then submit in TUI)
+require("opencode").prompt("@this ")        -- Current line or selection
+require("opencode").prompt("@buffer")       -- Current file
+require("opencode").prompt("@diagnostics")  -- LSP diagnostics
+
+-- Or submit immediately
+require("opencode").prompt("Fix @diagnostics", { submit = true })
+require("opencode").prompt("Explain this", { clear = true, submit = true })
 ```
 
 **Context Placeholders:**
 
-| Placeholder | Example Output | Description |
-|:----------------|:----------------------------|:-----------------------------------|
-| `@this` | `@file.lua#L21` or `#L21-30`| Selection range, or current line |
+| Placeholder | Expands To | Description |
+|:------------|:-----------|:------------|
+| `@this` | `@file.lua#L21` or `#L21-30` | Current line, or selection in visual mode |
 | `@buffer` | `@file.lua` | Current buffer path |
 | `@diagnostics` | (formatted list) | LSP diagnostics for current buffer |
+
+> **Tip:** A trailing space (e.g., `@this `) dismisses opencode's file picker popup, which otherwise clears the line number from the reference.
 
 ### Commands
 
