@@ -4,22 +4,46 @@
 ---send prompts with context expansion, and execute TUI commands.
 local M = {}
 
+---Focus the opencode terminal window if it exists.
+local function focus_terminal()
+  vim.schedule(function()
+    local win = require("opencode.terminal").get()
+    if win and win.win and vim.api.nvim_win_is_valid(win.win) then
+      vim.api.nvim_set_current_win(win.win)
+    end
+  end)
+end
+
+---@class opencode.ToggleOpts
+---@field focus? boolean Focus the terminal window after opening
+
 ---Toggle the opencode terminal.
-M.toggle = function()
+---@param opts? opencode.ToggleOpts
+M.toggle = function(opts)
+  opts = opts or {}
   require("opencode.terminal").toggle()
   require("opencode.client").ensure_subscribed()
+  if opts.focus then
+    focus_terminal()
+  end
 end
 
 ---Start the opencode terminal.
-M.start = function()
+---@param opts? opencode.ToggleOpts
+M.start = function(opts)
+  opts = opts or {}
   require("opencode.terminal").start()
   require("opencode.client").ensure_subscribed()
+  if opts.focus then
+    focus_terminal()
+  end
 end
 
 ---@class opencode.PromptOpts
 ---@field clear? boolean Clear the TUI input before
 ---@field submit? boolean Submit the TUI input after
 ---@field context? opencode.Context The context (defaults to current state)
+---@field focus? boolean Focus the terminal window after sending prompt
 
 ---Send a prompt to opencode with context expansion.
 ---@param prompt string The prompt text (supports @this, @buffer, @diagnostics)
@@ -45,6 +69,10 @@ function M.prompt(prompt, opts)
 
         if opts.submit then
           require("opencode.client").execute_command(port, "prompt.submit")
+        end
+
+        if opts.focus then
+          focus_terminal()
         end
 
         context:clear()

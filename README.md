@@ -31,10 +31,10 @@ A simple Neovim plugin for [opencode](https://github.com/anomalyco/opencode) int
     vim.o.autoread = true
   end,
   keys = {
-    { "<leader>ac", function() require("opencode").toggle() end, mode = { "n", "t" }, desc = "Toggle opencode" },
-    { "<leader>aa", function() require("opencode").prompt("@this ") end, mode = { "n", "x" }, desc = "Add to prompt" },
-    { "<leader>ab", function() require("opencode").prompt("@buffer") end, desc = "Add buffer to prompt" },
-    { "<leader>ad", function() require("opencode").prompt("@diagnostics") end, desc = "Add diagnostics to prompt" },
+    { "<leader>ac", function() require("opencode").toggle({ focus = true }) end, mode = { "n", "t" }, desc = "Toggle opencode" },
+    { "<leader>aa", function() require("opencode").prompt("@this ", { focus = true }) end, mode = { "n", "x" }, desc = "Add to prompt" },
+    { "<leader>ab", function() require("opencode").prompt("@buffer", { focus = true }) end, desc = "Add buffer to prompt" },
+    { "<leader>ad", function() require("opencode").prompt("@diagnostics", { focus = true }) end, desc = "Add diagnostics to prompt" },
   },
 }
 ```
@@ -68,9 +68,11 @@ vim.g.opencode_opts = {
 ### Terminal Control
 
 ```lua
-require("opencode").toggle()  -- Toggle the opencode terminal
-require("opencode").start()   -- Start opencode if not running
-require("opencode").status()  -- Show terminal and SSE connection status
+require("opencode").toggle()                 -- Toggle the opencode terminal
+require("opencode").toggle({ focus = true }) -- Toggle and focus the terminal
+require("opencode").start()                  -- Start opencode if not running
+require("opencode").start({ focus = true })  -- Start and focus the terminal
+require("opencode").status()                 -- Show terminal and SSE connection status
 ```
 
 ### Prompts
@@ -81,10 +83,21 @@ require("opencode").prompt("@this ")        -- Current line or selection
 require("opencode").prompt("@buffer")       -- Current file
 require("opencode").prompt("@diagnostics")  -- LSP diagnostics
 
+-- Focus the terminal after adding context
+require("opencode").prompt("@this ", { focus = true })
+
 -- Or submit immediately
 require("opencode").prompt("Fix @diagnostics", { submit = true })
 require("opencode").prompt("Explain this", { clear = true, submit = true })
 ```
+
+**Prompt Options:**
+
+| Option | Type | Description |
+|:-------|:-----|:------------|
+| `clear` | boolean | Clear the TUI input before appending |
+| `submit` | boolean | Submit the TUI input after appending |
+| `focus` | boolean | Focus the terminal window after sending |
 
 **Context Placeholders:**
 
