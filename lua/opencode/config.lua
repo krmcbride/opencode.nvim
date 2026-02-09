@@ -11,6 +11,7 @@ local M = {}
 
 ---@class opencode.TerminalConfig
 ---@field cmd? string Command to run (default: "opencode --port")
+---@field env? table<string, string|number|boolean> Environment variables for the opencode process
 ---@field snacks? snacks.terminal.Opts Options passed to snacks.terminal
 
 ---@type opencode.Opts
@@ -22,6 +23,7 @@ local defaults = {
   auto_reload = true,
   terminal = {
     cmd = "opencode --port",
+    env = nil,
     snacks = {
       auto_close = true,
       win = {

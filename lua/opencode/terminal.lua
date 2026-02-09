@@ -10,9 +10,36 @@ local M = {}
 -- Track the port for API calls
 local tracked_port = nil
 
+---@param env table<string, string|number|boolean>|nil
+---@return table<string, string>|nil
+local function normalize_env(env)
+  if not env or vim.tbl_isempty(env) then
+    return nil
+  end
+
+  local normalized = {}
+  for key, value in pairs(env) do
+    if value ~= nil then
+      normalized[key] = tostring(value)
+    end
+  end
+
+  if vim.tbl_isempty(normalized) then
+    return nil
+  end
+
+  return normalized
+end
+
 local function get_opts()
   local config = require("opencode.config").opts.terminal or {}
-  return config.cmd or "opencode --port", config.snacks or {}
+  local cmd = config.cmd or "opencode --port"
+  local snacks_opts = vim.deepcopy(config.snacks or {})
+
+  -- Environment variables for opencode are configured via terminal.env.
+  snacks_opts.env = normalize_env(config.env)
+
+  return cmd, snacks_opts
 end
 
 ---Get the existing terminal window (if any).

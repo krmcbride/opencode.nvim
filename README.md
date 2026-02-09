@@ -25,6 +25,11 @@ A simple Neovim plugin for [opencode](https://github.com/anomalyco/opencode) int
       terminal = {
         -- Use --continue to resume the last session on startup
         cmd = "opencode --port --continue",
+        env = {
+          -- Example feature flags
+          OPENCODE_EXPERIMENT_A = 1,
+          OPENCODE_EXPERIMENT_B = "enabled",
+        },
       },
     }
     -- Required for auto-reload when opencode edits files
@@ -51,6 +56,7 @@ vim.g.opencode_opts = {
   auto_reload = true,   -- Reload buffers when opencode edits files
   terminal = {
     cmd = "opencode --port",  -- Add --continue to resume last session
+    env = nil,                 -- Environment variables for opencode process
     snacks = {                -- Options passed to snacks.terminal
       auto_close = true,
       win = {
@@ -62,6 +68,9 @@ vim.g.opencode_opts = {
   },
 }
 ```
+
+> **Environment variables:** Set OpenCode feature flags in `vim.g.opencode_opts.terminal.env`.
+> `terminal.snacks` is only for terminal UI/behavior options.
 
 ## API
 
