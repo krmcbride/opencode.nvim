@@ -11,8 +11,8 @@ local M = {}
 
 ---@class opencode.TerminalConfig
 ---@field cmd? string Command to run (default: "opencode --port")
+---@field width? number Terminal window width passed to snacks.win.width
 ---@field env? table<string, string|number|boolean> Environment variables for the opencode process
----@field snacks? snacks.terminal.Opts Options passed to snacks.terminal
 
 ---@type opencode.Opts
 vim.g.opencode_opts = vim.g.opencode_opts
@@ -23,17 +23,8 @@ local defaults = {
   auto_reload = true,
   terminal = {
     cmd = "opencode --port",
+    width = 0.35,
     env = nil,
-    snacks = {
-      auto_close = true,
-      win = {
-        position = "right",
-        width = 0.35,
-        enter = false,
-        wo = { winbar = "" },
-        bo = { filetype = "opencode_terminal" },
-      },
-    },
   },
 }
 

@@ -25,6 +25,7 @@ A simple Neovim plugin for [opencode](https://github.com/anomalyco/opencode) int
       terminal = {
         -- Use --continue to resume the last session on startup
         cmd = "opencode --port --continue",
+        width = vim.g.is_laptop and 0.54 or 0.43,
         env = {
           -- Example feature flags
           OPENCODE_EXPERIMENT_A = 1,
@@ -55,22 +56,16 @@ vim.g.opencode_opts = {
   port = nil,           -- Fixed port, or nil to auto-discover
   auto_reload = true,   -- Reload buffers when opencode edits files
   terminal = {
-    cmd = "opencode --port",  -- Add --continue to resume last session
-    env = nil,                 -- Environment variables for opencode process
-    snacks = {                -- Options passed to snacks.terminal
-      auto_close = true,
-      win = {
-        position = "right",
-        width = 0.35,
-        enter = false,
-      },
-    },
+    cmd = "opencode --port", -- Add --continue to resume last session
+    width = 0.35,             -- Terminal width
+    env = nil,                -- Environment variables for opencode process
   },
 }
 ```
 
 > **Environment variables:** Set OpenCode feature flags in `vim.g.opencode_opts.terminal.env`.
-> `terminal.snacks` is only for terminal UI/behavior options.
+> **Width:** Set terminal width with `vim.g.opencode_opts.terminal.width`.
+> Other terminal behavior uses plugin defaults.
 
 ## API
 

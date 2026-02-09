@@ -10,6 +10,24 @@ local M = {}
 -- Track the port for API calls
 local tracked_port = nil
 
+-- Snacks terminal docs:
+-- https://github.com/folke/snacks.nvim/blob/main/docs/terminal.md
+-- https://github.com/folke/snacks.nvim/blob/main/docs/win.md
+local DEFAULT_SNACKS_OPTS = {
+  -- Close the terminal window when opencode exits successfully.
+  auto_close = true,
+  win = {
+    -- Keep opencode in a right-side split.
+    position = "right",
+    -- Do not steal focus unless the caller explicitly requests focus.
+    enter = false,
+    -- Hide split winbar for a cleaner terminal pane.
+    wo = { winbar = "" },
+    -- Mark this terminal buffer so users can target it with ft-based config.
+    bo = { filetype = "opencode_terminal" },
+  },
+}
+
 ---@param env table<string, string|number|boolean>|nil
 ---@return table<string, string>|nil
 local function normalize_env(env)
@@ -34,7 +52,9 @@ end
 local function get_opts()
   local config = require("opencode.config").opts.terminal or {}
   local cmd = config.cmd or "opencode --port"
-  local snacks_opts = vim.deepcopy(config.snacks or {})
+  local snacks_opts = vim.deepcopy(DEFAULT_SNACKS_OPTS)
+
+  snacks_opts.win.width = config.width
 
   -- Environment variables for opencode are configured via terminal.env.
   snacks_opts.env = normalize_env(config.env)
