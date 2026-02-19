@@ -23,6 +23,29 @@ vim.api.nvim_create_autocmd("TermClose", {
   desc = "Clean up SSE connection when opencode terminal exits",
 })
 
+-- Keep opencode terminal in insert mode when focused.
+vim.api.nvim_create_autocmd({ "BufEnter", "WinEnter" }, {
+  group = augroup,
+  callback = function(ev)
+    if vim.bo[ev.buf].filetype ~= "opencode_terminal" then
+      return
+    end
+
+    vim.schedule(function()
+      if not vim.api.nvim_buf_is_valid(ev.buf) then
+        return
+      end
+      if vim.api.nvim_get_current_buf() ~= ev.buf then
+        return
+      end
+      if vim.api.nvim_get_mode().mode ~= "t" then
+        vim.cmd.startinsert()
+      end
+    end)
+  end,
+  desc = "Enter insert mode when opencode terminal gains focus",
+})
+
 -- Auto-reload files edited by opencode
 vim.api.nvim_create_autocmd("User", {
   group = augroup,

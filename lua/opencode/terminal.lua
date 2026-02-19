@@ -16,6 +16,10 @@ local tracked_port = nil
 local DEFAULT_SNACKS_OPTS = {
   -- Close the terminal window when opencode exits successfully.
   auto_close = true,
+  -- Always enter insert mode when the terminal opens.
+  start_insert = true,
+  -- Re-enter insert mode whenever this terminal regains focus.
+  auto_insert = true,
   win = {
     -- Keep opencode in a right-side split.
     position = "right",
