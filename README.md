@@ -107,7 +107,7 @@ require("opencode").prompt("Explain this", { clear = true, submit = true })
 
 | Placeholder | Expands To | Description |
 |:------------|:-----------|:------------|
-| `@this` | `@file.lua#L21` or `#L21-30` | Current line, or selection in visual mode |
+| `@this` | `@file.lua#L21`, `#L21-30`, or `#L21C8-L21C19` | Current line, or selection in visual mode (single-line visual selections include columns) |
 | `@buffer` | `@file.lua` | Current buffer path |
 | `@diagnostics` | (formatted list) | LSP diagnostics for current buffer |
 

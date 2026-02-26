@@ -2,7 +2,7 @@
 ---
 ---Captures the current window, buffer, cursor position, and visual selection
 ---when created. Expands placeholders like @this, @buffer, @diagnostics in
----prompt strings to opencode's file reference format (e.g., `@file.lua L21-L30`).
+---prompt strings to opencode's file reference format (e.g., `@file.lua#L21-30`).
 ---@class opencode.Context
 ---@field win integer
 ---@field buf integer
@@ -82,8 +82,8 @@ local function highlight_range(buf, range)
 end
 
 ---Format a location for opencode (GitHub-style).
----e.g. `@file.lua#L21` or `@file.lua#L21-30`
----@param args { buf?: integer, path?: string, start_line?: integer, end_line?: integer }
+---e.g. `@file.lua#L21`, `@file.lua#L21-30`, or `@file.lua#L21C8-L21C19`
+---@param args { buf?: integer, path?: string, start_line?: integer, start_col?: integer, end_line?: integer, end_col?: integer }
 ---@return string
 local function format_location(args)
   local result = ""
@@ -93,14 +93,37 @@ local function format_location(args)
   end
   if args.start_line and args.end_line and args.start_line > args.end_line then
     args.start_line, args.end_line = args.end_line, args.start_line
+    args.start_col, args.end_col = args.end_col, args.start_col
+  elseif
+    args.start_line
+    and args.end_line
+    and args.start_line == args.end_line
+    and args.start_col
+    and args.end_col
+    and args.start_col > args.end_col
+  then
+    args.start_col, args.end_col = args.end_col, args.start_col
   end
   if args.start_line then
     if result ~= "" then
       result = result .. "#"
     end
     result = result .. string.format("L%d", args.start_line)
-    if args.end_line and args.end_line ~= args.start_line then
-      result = result .. string.format("-%d", args.end_line)
+    if args.start_col then
+      result = result .. string.format("C%d", args.start_col)
+    end
+
+    local has_end = args.end_line
+      and (args.end_line ~= args.start_line or (args.end_col and args.end_col ~= args.start_col))
+    if has_end then
+      if args.start_col or args.end_col then
+        result = result .. string.format("-L%d", args.end_line)
+        if args.end_col then
+          result = result .. string.format("C%d", args.end_col)
+        end
+      else
+        result = result .. string.format("-%d", args.end_line)
+      end
     end
   end
   return result
@@ -130,10 +153,15 @@ end
 ---@return string
 function Context:this()
   if self.range then
+    local same_line = self.range.from[1] == self.range.to[1]
+    local use_columns = same_line and self.range.kind ~= "line"
+
     return format_location({
       buf = self.buf,
       start_line = self.range.from[1],
       end_line = self.range.to[1],
+      start_col = use_columns and (self.range.from[2] + 1) or nil,
+      end_col = use_columns and (self.range.to[2] + 1) or nil,
     })
   else
     -- No selection: reference current line
