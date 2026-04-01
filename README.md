@@ -107,7 +107,7 @@ require("opencode").prompt("Explain this", { clear = true, submit = true })
 
 | Placeholder | Expands To | Description |
 |:------------|:-----------|:------------|
-| `@this` | `@file.lua#L21`, `#L21-30`, or `#L21C8-L21C19` | Current line, or selection in visual mode (single-line visual selections include columns) |
+| `@this` | `@file.lua#21`, `@file.lua#21-30`, or `columns 8-15 in @file.lua#21` | Current line, line range, or single-line char selection (columns as text; `@…#` last for TUI autocomplete) |
 | `@buffer` | `@file.lua` | Current buffer path |
 | `@diagnostics` | (formatted list) | LSP diagnostics for current buffer |
 

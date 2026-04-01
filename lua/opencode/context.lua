@@ -2,7 +2,7 @@
 ---
 ---Captures the current window, buffer, cursor position, and visual selection
 ---when created. Expands placeholders like @this, @buffer, @diagnostics in
----prompt strings to opencode's file reference format (e.g., `@file.lua#L21-30`).
+---prompt strings to opencode's file reference format (e.g., `@file.lua#21-30`).
 ---@class opencode.Context
 ---@field win integer
 ---@field buf integer
@@ -81,16 +81,12 @@ local function highlight_range(buf, range)
   })
 end
 
----Format a location for opencode (GitHub-style).
----e.g. `@file.lua#L21`, `@file.lua#L21-30`, or `@file.lua#L21C8-L21C19`
+---Format a location for the OpenCode TUI (line fragments use `#N` / `#N-M`, not `#LN`).
+---With column bounds and a file path, uses `columns X-Y in @file#A-B` so the `@` ref stays last
+---(matches TUI autocomplete: cursor after the range accepts the file part with Enter).
 ---@param args { buf?: integer, path?: string, start_line?: integer, start_col?: integer, end_line?: integer, end_col?: integer }
 ---@return string
 local function format_location(args)
-  local result = ""
-  if (args.buf and is_buf_valid(args.buf)) or args.path then
-    local rel_path = vim.fn.fnamemodify(args.path or vim.api.nvim_buf_get_name(args.buf), ":.")
-    result = "@" .. rel_path
-  end
   if args.start_line and args.end_line and args.start_line > args.end_line then
     args.start_line, args.end_line = args.end_line, args.start_line
     args.start_col, args.end_col = args.end_col, args.start_col
@@ -104,26 +100,32 @@ local function format_location(args)
   then
     args.start_col, args.end_col = args.end_col, args.start_col
   end
+
+  local has_path = (args.buf and is_buf_valid(args.buf)) or args.path
+  local rel_path = has_path and vim.fn.fnamemodify(args.path or vim.api.nvim_buf_get_name(args.buf), ":.") or nil
+
+  -- Column precision: plain-text columns first; `@path#line` last for TUI file autocomplete.
+  if rel_path and args.start_line and args.start_col ~= nil and args.end_col ~= nil then
+    local line_start = args.start_line
+    local line_end = args.end_line or args.start_line
+    local hash = line_start == line_end and string.format("%d", line_start)
+      or string.format("%d-%d", line_start, line_end)
+    return string.format("columns %d-%d in @%s#%s", args.start_col, args.end_col, rel_path, hash)
+  end
+
+  local result = ""
+  if has_path then
+    result = "@" .. rel_path
+  end
   if args.start_line then
     if result ~= "" then
       result = result .. "#"
     end
-    result = result .. string.format("L%d", args.start_line)
-    if args.start_col then
-      result = result .. string.format("C%d", args.start_col)
-    end
-
+    result = result .. string.format("%d", args.start_line)
     local has_end = args.end_line
       and (args.end_line ~= args.start_line or (args.end_col and args.end_col ~= args.start_col))
     if has_end then
-      if args.start_col or args.end_col then
-        result = result .. string.format("-L%d", args.end_line)
-        if args.end_col then
-          result = result .. string.format("C%d", args.end_col)
-        end
-      else
-        result = result .. string.format("-%d", args.end_line)
-      end
+      result = result .. string.format("-%d", args.end_line)
     end
   end
   return result
