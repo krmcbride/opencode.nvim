@@ -15,7 +15,7 @@ vim.api.nvim_create_autocmd("VimLeavePre", {
 vim.api.nvim_create_autocmd("TermClose", {
   group = augroup,
   callback = function(ev)
-    -- Check if this is our terminal (filetype set in config.lua defaults)
+    -- Check if this is our terminal (see `bo.filetype` in lua/opencode/terminal.lua)
     if vim.bo[ev.buf].filetype == "opencode_terminal" then
       require("opencode.client").sse_unsubscribe()
     end
@@ -23,14 +23,22 @@ vim.api.nvim_create_autocmd("TermClose", {
   desc = "Clean up SSE connection when opencode terminal exits",
 })
 
--- Keep opencode terminal in insert mode when focused.
+-- Re-enter Terminal mode when the opencode pane regains focus (e.g. closing a
+-- float, ToggleTerm, or moving between splits).
+--
+-- snacks.nvim `auto_insert` only hooks BufEnter and calls `startinsert`
+-- synchronously (see snacks.nvim lua/snacks/terminal.lua). We also hook
+-- BufEnter and WinEnter, then `vim.schedule` + `startinsert` if the mode is
+-- not already `t`. That covers WinEnter-only focus changes snacks does not
+-- register, and deferred re-entry when an immediate `startinsert` does not
+-- stick (overlays / focus-order quirks). If snacks already left us in `t`, we
+-- no-op.
 vim.api.nvim_create_autocmd({ "BufEnter", "WinEnter" }, {
   group = augroup,
   callback = function(ev)
     if vim.bo[ev.buf].filetype ~= "opencode_terminal" then
       return
     end
-
     vim.schedule(function()
       if not vim.api.nvim_buf_is_valid(ev.buf) then
         return

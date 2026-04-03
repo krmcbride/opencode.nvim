@@ -245,7 +245,7 @@ function M.sse_subscribe(port, callback)
         end)
       )
 
-      -- Fire autocmd for the event (e.g., "OpencodeEvent:file.changed")
+      -- Fire autocmd for the event (e.g., "OpencodeEvent:file.edited")
       vim.api.nvim_exec_autocmds("User", {
         pattern = "OpencodeEvent:" .. response.type,
         data = { event = response, port = port },
