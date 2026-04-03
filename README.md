@@ -101,7 +101,9 @@ require("opencode").prompt("Explain this", { clear = true, submit = true })
 |:-------|:-----|:------------|
 | `clear` | boolean | Clear the TUI input before appending |
 | `submit` | boolean | Submit the TUI input after appending |
-| `focus` | boolean | Focus the terminal window after sending |
+| `focus` | boolean | Focus the terminal after append; also enters Terminal mode and moves the cursor to EOL (see note below) |
+
+> **`focus` behavior:** OpenCode’s `@` picker expects the cursor at the end of an `@path` fragment. With `focus = true`, the plugin focuses the snacks terminal, switches to Terminal mode, then jumps to the end of the prompt so appended refs match that expectation.
 
 **Context Placeholders:**
 

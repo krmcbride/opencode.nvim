@@ -4,18 +4,63 @@
 ---send prompts with context expansion, and execute TUI commands.
 local M = {}
 
----Focus the opencode terminal window if it exists.
-local function focus_terminal()
+---Move the TUI input cursor to end-of-line by sending Ctrl-E on the PTY.
+---
+---OpenCode's `@` file picker opens when the cursor is at the end of an `@path`
+---fragment. Neovim config often injects that text via HTTP append; we then need
+---the cursor *on* the end of the fragment (not Normal mode over the split, and
+---not after a translated `<End>`), so the TUI can treat it like a native `@`
+---completion.
+---
+---We send raw Ctrl-E (byte `\005`) via `nvim_chan_send` instead of `feedkeys`
+---with `<End>`: terminal key translation produced stray characters in practice;
+---Ctrl-E matches common readline end-of-line behavior.
+local function send_terminal_ctrl_e(buf)
+  local job_id = vim.b[buf] and vim.b[buf].terminal_job_id
+  if job_id then
+    vim.api.nvim_chan_send(job_id, "\005")
+  end
+end
+
+---Focus the opencode terminal and optionally move the TUI cursor to EOL.
+---
+---@param opts? { cursor_end?: boolean } When true, defer briefly so the TUI can
+---   apply appended text, then send Ctrl-E (see block comment on `send_terminal_ctrl_e`).
+local function focus_terminal(opts)
+  opts = opts or {}
   vim.schedule(function()
-    local win = require("opencode.terminal").get()
-    if win and win.win and vim.api.nvim_win_is_valid(win.win) then
-      vim.api.nvim_set_current_win(win.win)
+    local terminal = require("opencode.terminal").get()
+    if not (terminal and terminal.win and vim.api.nvim_win_is_valid(terminal.win)) then
+      return
+    end
+
+    -- Terminal buffers default to Normal mode when focused; the TUI needs Terminal mode.
+    vim.api.nvim_set_current_win(terminal.win)
+    if vim.api.nvim_get_mode().mode:sub(1, 1) ~= "t" then
+      vim.cmd.startinsert()
+    end
+
+    if opts.cursor_end then
+      -- Give the HTTP-appended prompt time to show in the TUI before moving the cursor.
+      vim.defer_fn(function()
+        if not vim.api.nvim_win_is_valid(terminal.win) then
+          return
+        end
+        if vim.api.nvim_get_current_win() ~= terminal.win then
+          return
+        end
+        local buf = vim.api.nvim_win_get_buf(terminal.win)
+        if vim.api.nvim_get_mode().mode:sub(1, 1) ~= "t" then
+          vim.cmd.startinsert()
+        end
+        send_terminal_ctrl_e(buf)
+      end, 25)
     end
   end)
 end
 
 ---@class opencode.ToggleOpts
----@field focus? boolean Focus the terminal window after opening
+---@field focus? boolean After open: focus the window and enter Terminal mode (not Normal over the split)
 
 ---Toggle the opencode terminal.
 ---@param opts? opencode.ToggleOpts
@@ -40,10 +85,10 @@ M.start = function(opts)
 end
 
 ---@class opencode.PromptOpts
----@field clear? boolean Clear the TUI input before
----@field submit? boolean Submit the TUI input after
+---@field clear? boolean Clear the TUI input before appending
+---@field submit? boolean Submit the TUI input after appending
 ---@field context? opencode.Context The context (defaults to current state)
----@field focus? boolean Focus the terminal window after sending prompt
+---@field focus? boolean After append: focus the terminal, enter Terminal mode, move cursor to EOL (so `@` refs from Neovim land like a native TUI completion)
 
 ---Send a prompt to opencode with context expansion.
 ---@param prompt string The prompt text (supports @this, @buffer, @diagnostics)
@@ -72,7 +117,7 @@ function M.prompt(prompt, opts)
         end
 
         if opts.focus then
-          focus_terminal()
+          focus_terminal({ cursor_end = true })
         end
 
         context:clear()
