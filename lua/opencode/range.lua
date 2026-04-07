@@ -9,18 +9,16 @@ end
 
 ---@param buf integer
 ---@return { start_line: integer, end_line: integer }|nil
-local function get_visual_line_range(buf)
+local function get_active_visual_line_range(buf)
   local mode = vim.fn.mode(1)
   if not mode:match("^[vV\22]") then
     return nil
   end
 
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<esc>", true, false, true), "x", true)
-
-  local start_pos = vim.api.nvim_buf_get_mark(buf, "<")
-  local end_pos = vim.api.nvim_buf_get_mark(buf, ">")
-  local start_line = start_pos[1]
-  local end_line = end_pos[1]
+  local start_pos = vim.fn.getpos("v")
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  local start_line = start_pos[2]
+  local end_line = cursor[1]
 
   if start_line == 0 or end_line == 0 then
     return nil
@@ -66,7 +64,7 @@ function M.current_selection_or_line()
   end
 
   local path = vim.api.nvim_buf_get_name(buf)
-  local visual = get_visual_line_range(buf)
+  local visual = get_active_visual_line_range(buf)
   if visual then
     return {
       buf = buf,
@@ -94,7 +92,7 @@ function M.visual_selection()
   end
 
   local path = vim.api.nvim_buf_get_name(buf)
-  local range = get_mark_line_range(buf)
+  local range = get_active_visual_line_range(buf) or get_mark_line_range(buf)
   if not range then
     return nil, "No visual selection marks available"
   end

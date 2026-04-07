@@ -118,11 +118,12 @@ end
 
 ---@param selection { path: string, start_line: integer, end_line: integer }
 local function review_with_selection(selection)
+  local filename = vim.fn.fnamemodify(selection.path, ":t")
   local title
   if selection.start_line == selection.end_line then
-    title = "Review line " .. tostring(selection.start_line)
+    title = "Review " .. filename .. " line " .. tostring(selection.start_line)
   else
-    title = "Review lines " .. tostring(selection.start_line) .. "-" .. tostring(selection.end_line)
+    title = "Review " .. filename .. " lines " .. tostring(selection.start_line) .. "-" .. tostring(selection.end_line)
   end
 
   require("opencode.input").review({
