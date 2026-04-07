@@ -11,10 +11,6 @@ local state = {
   instance_id = nil,
   route = "home",
   session_id = nil,
-  request_count = 0,
-  last_request_line = nil,
-  last_error = nil,
-  last_body = nil,
 }
 
 ---@param target string
@@ -134,7 +130,6 @@ end
 
 ---@param payload table<string, any>
 local function update_state(payload)
-  state.request_count = state.request_count + 1
   state.route = payload.route == "session" and "session" or "home"
   state.session_id = state.route == "session" and payload.sessionID or nil
 
@@ -154,33 +149,26 @@ end
 ---@return integer, string
 local function handle_request(request)
   local line = request:match("^([^\r\n]+)")
-  state.last_request_line = line
   if not line then
-    state.last_error = "bad request line"
     return 400, '{"error":"bad request"}'
   end
 
   local method, target = line:match("^(%u+)%s+([^%s]+)")
   local path = target and normalize_target(target)
   if method ~= "POST" or path ~= "/opencode/session" then
-    state.last_error = "unexpected target: " .. tostring(target)
     return 400, '{"error":"bad request"}'
   end
 
   local body = request:match("\r\n\r\n(.*)$") or request:match("\n\n(.*)$") or ""
-  state.last_body = body
   local payload = decode_json_body(body)
   if type(payload) ~= "table" then
-    state.last_error = "invalid json"
     return 400, '{"error":"invalid json"}'
   end
 
   if payload.token ~= state.token or payload.instanceID ~= state.instance_id then
-    state.last_error = "forbidden"
     return 403, '{"error":"forbidden"}'
   end
 
-  state.last_error = nil
   update_state(payload)
   return 200, '{"ok":true}'
 end
@@ -315,17 +303,13 @@ function M.ensure()
   }
 end
 
----@return { url: string|nil, route: string, session_id: string|nil, instance_id: string|nil, request_count: integer, last_request_line: string|nil, last_error: string|nil, last_body: string|nil }
+---@return { url: string|nil, route: string, session_id: string|nil, instance_id: string|nil }
 function M.get_state()
   return {
     url = state.url,
     route = state.route,
     session_id = state.session_id,
     instance_id = state.instance_id,
-    request_count = state.request_count,
-    last_request_line = state.last_request_line,
-    last_error = state.last_error,
-    last_body = state.last_body,
   }
 end
 

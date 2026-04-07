@@ -7,8 +7,6 @@ const bridgeToken = process.env.OPENCODE_NVIM_BRIDGE_TOKEN
 const instanceID = process.env.OPENCODE_NVIM_INSTANCE_ID
 
 let lastPayload = ""
-let notifiedInit = false
-let notifiedSuccess = false
 let notifiedError = false
 
 function canBridge() {
@@ -25,13 +23,7 @@ function toast(api: TuiPluginApi, message: string, variant: "info" | "success" |
 }
 
 async function publish(api: TuiPluginApi, route: "home" | "session", sessionID?: string) {
-  if (!canBridge()) {
-    if (!notifiedError) {
-      notifiedError = true
-      toast(api, "missing bridge env", "warning")
-    }
-    return
-  }
+  if (!canBridge()) return
 
   const payload = {
     token: bridgeToken,
@@ -56,11 +48,6 @@ async function publish(api: TuiPluginApi, route: "home" | "session", sessionID?:
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`)
     }
-
-    if (!notifiedSuccess) {
-      notifiedSuccess = true
-      toast(api, `publish ok: ${route}`, "success")
-    }
   } catch (error) {
     if (!notifiedError) {
       notifiedError = true
@@ -81,28 +68,11 @@ function syncRoute(api: TuiPluginApi) {
 }
 
 const tui: TuiPlugin = async (api) => {
-  if (!notifiedInit) {
-    notifiedInit = true
-    toast(api, canBridge() ? "loaded with env" : "loaded without env")
-  }
-
   syncRoute(api)
 
   const timer = setInterval(() => {
     syncRoute(api)
   }, 300)
-
-  api.command.register(() => [
-    {
-      title: "NVim Bridge Debug",
-      value: "nvim.bridge.debug",
-      category: "Plugin",
-      onSelect() {
-        const current = api.route.current
-        toast(api, current.name === "session" ? `route=session ${current.params.sessionID}` : `route=${current.name}`)
-      },
-    },
-  ])
 
   api.lifecycle.onDispose(() => {
     clearInterval(timer)

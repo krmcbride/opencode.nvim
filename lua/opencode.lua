@@ -183,20 +183,6 @@ function M.status()
   table.insert(lines, "Bridge: " .. (bridge.url or "not started"))
   table.insert(lines, "Route: " .. bridge.route)
   table.insert(lines, "Session: " .. (bridge.session_id or "none"))
-  table.insert(lines, "Bridge requests: " .. tostring(bridge.request_count or 0))
-  if bridge.last_request_line then
-    table.insert(lines, "Last request: " .. bridge.last_request_line)
-  end
-  if bridge.last_error then
-    table.insert(lines, "Bridge error: " .. bridge.last_error)
-  end
-  if bridge.last_body then
-    local preview = bridge.last_body:gsub("\n", "\\n")
-    if #preview > 160 then
-      preview = preview:sub(1, 160) .. "..."
-    end
-    table.insert(lines, "Bridge body: " .. preview)
-  end
 
   vim.notify(table.concat(lines, "\n"), vim.log.levels.INFO, { title = "opencode" })
 end
