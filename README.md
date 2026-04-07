@@ -231,6 +231,31 @@ vim.api.nvim_create_autocmd("User", {
 })
 ```
 
+When the bundled TUI bridge plugin is installed, `opencode.nvim` also forwards the
+active embedded session's local OpenCode events as autocmds:
+
+```lua
+vim.api.nvim_create_autocmd("User", {
+  pattern = "OpencodeActiveEvent:*",
+  callback = function(args)
+    local event = args.data.event
+    if event.type == "session.idle" then
+      vim.notify("active embedded OpenCode session is idle")
+    end
+  end,
+})
+```
+
+`OpencodeEvent:*` comes from the server SSE stream.
+`OpencodeActiveEvent:*` comes from the embedded TUI bridge plugin and is scoped to the currently attached session, which makes it suitable for local integrations like statusline or tmux hooks.
+
+For `OpencodeActiveEvent:*`, `args.data` includes:
+- `event`: the forwarded OpenCode event object
+- `route`: the local TUI route when the event was observed
+- `session_id`: the local attached session id when available
+- `instance_id`: the Neovim bridge instance id
+- `cwd`: the TUI working directory snapshot
+
 ## Acknowledgments
 
 - Inspired by [NickvanDyke/opencode.nvim](https://github.com/NickvanDyke/opencode.nvim)
