@@ -5,8 +5,10 @@ A simple Neovim plugin for [opencode](https://github.com/anomalyco/opencode) int
 ## Features
 
 - Launch a local `opencode attach` TUI against a configured backend server
+- Bridge the active attached TUI session back into Neovim
 - Snacks terminal integration for toggling opencode
 - Send prompts with context expansion (`@this`, `@buffer`, `@diagnostics`)
+- Send direct review comments for the current line or visual range to the active session
 - Execute TUI commands (session management, scrolling, etc.)
 - Auto-reload buffers when opencode edits files
 
@@ -28,7 +30,7 @@ A simple Neovim plugin for [opencode](https://github.com/anomalyco/opencode) int
         password_env = "OPENCODE_SERVER_PASSWORD",
       },
       terminal = {
-        width = vim.g.is_laptop and 0.54 or 0.43,
+        width = 0.43,
         env = {
           -- Example feature flags
           OPENCODE_EXPERIMENT_A = 1,
@@ -44,11 +46,28 @@ A simple Neovim plugin for [opencode](https://github.com/anomalyco/opencode) int
     { "<leader>aa", function() require("opencode").prompt("@this ", { focus = true }) end, mode = { "n", "x" }, desc = "Add to prompt" },
     { "<leader>ab", function() require("opencode").prompt("@buffer", { focus = true }) end, desc = "Add buffer to prompt" },
     { "<leader>ad", function() require("opencode").prompt("@diagnostics", { focus = true }) end, desc = "Add diagnostics to prompt" },
+    { "<leader>av", function() require("opencode").review_selection() end, mode = "n", desc = "Review line" },
+    { "<leader>av", function() require("opencode").review_visual_selection() end, mode = "x", desc = "Review selection" },
   },
 }
 ```
 
 > **Note:** The trailing space in `@this ` dismisses opencode's file picker, preserving the line number in the reference.
+
+### OpenCode TUI Plugin
+
+To track the active attached TUI session, OpenCode also needs the bundled TUI bridge plugin.
+Add it to your OpenCode `tui.json` plugin list, not `opencode.json`:
+
+```json
+{
+  "plugin": [
+    "file:///path/to/opencode.nvim/opencode-plugin"
+  ]
+}
+```
+
+The bridge plugin is inert unless `opencode.nvim` launches the TUI with its bridge environment variables.
 
 ## Configuration
 
@@ -116,23 +135,47 @@ require("opencode").prompt("Explain this", { clear = true, submit = true })
 
 **Prompt Options:**
 
-| Option   | Type    | Description                                                                                             |
+| Option | Type | Description |
 | :------- | :------ | :------------------------------------------------------------------------------------------------------ |
-| `clear`  | boolean | Clear the TUI input before appending                                                                    |
-| `submit` | boolean | Submit the TUI input after appending                                                                    |
-| `focus`  | boolean | Focus the terminal after append; also enters Terminal mode and moves the cursor to EOL (see note below) |
+| `clear` | boolean | Clear the TUI input before appending |
+| `submit` | boolean | Submit the TUI input after appending |
+| `focus` | boolean | Focus the terminal after append; also enters Terminal mode and moves the cursor to EOL (see note below) |
 
 > **`focus` behavior:** OpenCode’s `@` picker expects the cursor at the end of an `@path` fragment. With `focus = true`, the plugin focuses the snacks terminal, switches to Terminal mode, then jumps to the end of the prompt so appended refs match that expectation.
 
 **Context Placeholders:**
 
-| Placeholder    | Expands To                                                           | Description                                                                                                |
+| Placeholder | Expands To | Description |
 | :------------- | :------------------------------------------------------------------- | :--------------------------------------------------------------------------------------------------------- |
-| `@this`        | `@file.lua#21`, `@file.lua#21-30`, or `columns 8-15 in @file.lua#21` | Current line, line range, or single-line char selection (columns as text; `@…#` last for TUI autocomplete) |
-| `@buffer`      | `@file.lua`                                                          | Current buffer path                                                                                        |
-| `@diagnostics` | (formatted list)                                                     | LSP diagnostics for current buffer                                                                         |
+| `@this` | `@file.lua#21`, `@file.lua#21-30`, or `columns 8-15 in @file.lua#21` | Current line, line range, or single-line char selection (columns as text; `@…#` last for TUI autocomplete) |
+| `@buffer` | `@file.lua` | Current buffer path |
+| `@diagnostics` | (formatted list) | LSP diagnostics for current buffer |
 
 > **Tip:** A trailing space (e.g., `@this `) dismisses opencode's file picker popup, which otherwise clears the line number from the reference.
+
+### Reviews
+
+```lua
+-- Review the current line in the active attached TUI session.
+require("opencode").review_selection()
+
+-- Review the current visual range in the active attached TUI session.
+require("opencode").review_visual_selection()
+```
+
+Reviews are sent directly through `POST /session/<sessionID>/prompt_async` using:
+
+- one text part for your comment
+- one ranged file attachment using `file://...?...start=&end=`
+
+The review popup is a small cursor-anchored editor float:
+
+- `Ctrl-S` submits in normal or insert mode
+- `Ctrl-C` cancels in insert mode
+- `q` cancels in normal mode
+- `Enter` inserts a newline
+
+Direct review sends reuse the last persisted user message's `agent`, `model`, and `variant` when available, so they generally match the active session's existing model choice without requiring OpenCode core changes.
 
 ### Commands
 
@@ -146,26 +189,28 @@ require("opencode").command("session.interrupt")
 
 **Available Commands:**
 
-| Command                     | Description                      |
+| Command | Description |
 | --------------------------- | -------------------------------- |
-| `session.list`              | List sessions                    |
-| `session.new`               | Start new session                |
-| `session.share`             | Share current session            |
-| `session.interrupt`         | Interrupt current session        |
-| `session.compact`           | Compact session (reduce context) |
-| `session.page.up/down`      | Scroll messages                  |
-| `session.half.page.up/down` | Scroll half page                 |
-| `session.first/last`        | Jump to first/last message       |
-| `session.undo/redo`         | Undo/redo last action            |
-| `prompt.submit`             | Submit the TUI input             |
-| `prompt.clear`              | Clear the TUI input              |
-| `agent.cycle`               | Cycle the selected agent         |
+| `session.list` | List sessions |
+| `session.new` | Start new session |
+| `session.share` | Share current session |
+| `session.interrupt` | Interrupt current session |
+| `session.compact` | Compact session (reduce context) |
+| `session.page.up/down` | Scroll messages |
+| `session.half.page.up/down` | Scroll half page |
+| `session.first/last` | Jump to first/last message |
+| `session.undo/redo` | Undo/redo last action |
+| `prompt.submit` | Submit the TUI input |
+| `prompt.clear` | Clear the TUI input |
+| `agent.cycle` | Cycle the selected agent |
 
 ## User Commands
 
-| Command            | Description                             |
+| Command | Description |
 | ------------------ | --------------------------------------- |
 | `:Opencode status` | Show terminal and SSE connection status |
+
+`status` includes the bridged TUI route and active session so you can verify where direct reviews will be sent.
 
 ## Events
 

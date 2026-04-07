@@ -1,6 +1,6 @@
 import type { TuiPlugin, TuiPluginApi, TuiPluginModule } from "@opencode-ai/plugin/tui"
 
-const id = "krmcbride/opencode-nvim-bridge"
+const id = "opencode-nvim-bridge"
 
 const bridgeUrl = process.env.OPENCODE_NVIM_BRIDGE_URL
 const bridgeToken = process.env.OPENCODE_NVIM_BRIDGE_TOKEN
