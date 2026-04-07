@@ -10,6 +10,43 @@ function M.review(opts, on_confirm)
     local done = false
     local win
     local parent_win = vim.api.nvim_get_current_win()
+    local parent_cursor = vim.api.nvim_win_get_cursor(parent_win)
+    local augroup = vim.api.nvim_create_augroup("opencode_review_input_" .. tostring(vim.uv.hrtime()), { clear = true })
+
+    local function set_footer(mode)
+      if not win then
+        return
+      end
+
+      if mode == "i" then
+        win.opts.footer = {
+          { " ", "SnacksFooter" },
+          { " Ctrl-S ", "SnacksFooterKey" },
+          { " Submit ", "SnacksFooterDesc" },
+          { " ", "SnacksFooter" },
+          { " Ctrl-C ", "SnacksFooterKey" },
+          { " Cancel ", "SnacksFooterDesc" },
+          { " ", "SnacksFooter" },
+        }
+      else
+        win.opts.footer = {
+          { " ", "SnacksFooter" },
+          { " Ctrl-S ", "SnacksFooterKey" },
+          { " Submit ", "SnacksFooterDesc" },
+          { " ", "SnacksFooter" },
+          { " q ", "SnacksFooterKey" },
+          { " Cancel ", "SnacksFooterDesc" },
+          { " ", "SnacksFooter" },
+        }
+      end
+
+      if win:valid() then
+        vim.api.nvim_win_set_config(win.win, {
+          footer = win.opts.footer,
+          footer_pos = win.opts.footer_pos or "center",
+        })
+      end
+    end
 
     local function restore_parent()
       vim.schedule(function()
@@ -25,6 +62,7 @@ function M.review(opts, on_confirm)
         return
       end
       done = true
+      pcall(vim.api.nvim_del_augroup_by_id, augroup)
       if win and win:valid() then
         win:close()
       end
@@ -37,7 +75,9 @@ function M.review(opts, on_confirm)
     win = snacks.win({
       enter = true,
       show = false,
-      relative = "cursor",
+      relative = "win",
+      win = parent_win,
+      bufpos = { parent_cursor[1] - 1, parent_cursor[2] },
       row = 1,
       col = 0,
       width = width,
@@ -49,7 +89,6 @@ function M.review(opts, on_confirm)
       border = "rounded",
       title = opts.title or opts.prompt,
       title_pos = "left",
-      footer_keys = { "<c-s>", "q", "<c-c>" },
       bo = {
         buftype = "nofile",
         bufhidden = "wipe",
@@ -70,7 +109,7 @@ function M.review(opts, on_confirm)
             finish(vim.trim(self:text()))
           end,
           desc = "Submit",
-          mode = "i",
+          mode = { "n", "i" },
         },
         cancel = {
           "q",
@@ -90,6 +129,21 @@ function M.review(opts, on_confirm)
         },
       },
       on_win = function()
+        set_footer("i")
+        vim.api.nvim_create_autocmd("InsertEnter", {
+          group = augroup,
+          buffer = win.buf,
+          callback = function()
+            set_footer("i")
+          end,
+        })
+        vim.api.nvim_create_autocmd("InsertLeave", {
+          group = augroup,
+          buffer = win.buf,
+          callback = function()
+            set_footer("n")
+          end,
+        })
         vim.schedule(function()
           vim.cmd.startinsert()
         end)
