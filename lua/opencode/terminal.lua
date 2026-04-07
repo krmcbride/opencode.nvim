@@ -5,9 +5,14 @@
 local M = {}
 local warned_username = false
 local state = {
-  session_id = nil,
+  launch_session_id = nil,
   follow_session = false,
+  terminal = nil,
 }
+
+local function current_target()
+  return { session_id = state.launch_session_id }
+end
 
 local DEFAULT_SNACKS_OPTS = {
   auto_close = true,
@@ -72,7 +77,7 @@ end
 local function get_cmd(target)
   local config = require("opencode.config")
   local terminal = config.opts.terminal or {}
-  target = target or state
+  target = target or current_target()
   if terminal.cmd then
     return terminal.cmd
   end
@@ -121,12 +126,20 @@ end
 ---@param target? { session_id?: string|nil }
 ---@param create? boolean
 function M.get(target, create)
+  if target == nil and state.terminal and state.terminal.buf_valid and state.terminal:buf_valid() then
+    return state.terminal
+  end
+
   local cmd, snacks_opts = get_opts(target)
   local opts = vim.tbl_deep_extend("force", snacks_opts, { create = false })
   if create ~= nil then
     opts.create = create
   end
-  return require("snacks.terminal").get(cmd, opts)
+  local terminal = require("snacks.terminal").get(cmd, opts)
+  if target == nil and terminal and terminal.buf_valid and terminal:buf_valid() then
+    state.terminal = terminal
+  end
+  return terminal
 end
 
 ---@return integer|nil
@@ -254,21 +267,27 @@ function M.command(command, callback)
 end
 
 function M.toggle()
-  local cmd, snacks_opts = get_opts()
-  require("snacks.terminal").toggle(cmd, snacks_opts)
+  local terminal = M.get(nil, false)
+  if terminal and terminal.buf_valid and terminal:buf_valid() then
+    terminal:toggle()
+    return
+  end
+
+  local cmd, snacks_opts = get_opts(current_target())
+  state.terminal = require("snacks.terminal").open(cmd, snacks_opts)
 end
 
 function M.start()
   if not M.get(nil, false) then
-    local cmd, snacks_opts = get_opts()
-    require("snacks.terminal").open(cmd, snacks_opts)
+    local cmd, snacks_opts = get_opts(current_target())
+    state.terminal = require("snacks.terminal").open(cmd, snacks_opts)
   end
 end
 
 ---@param target? { session_id?: string|nil }
 function M.stop(target)
+  local terminal = target == nil and state.terminal or M.get(target)
   local job = get_job(target)
-  local terminal = M.get(target)
 
   if job then
     vim.fn.jobstop(job)
@@ -276,6 +295,10 @@ function M.stop(target)
 
   if terminal then
     terminal:close()
+  end
+
+  if target == nil or state.terminal == terminal then
+    state.terminal = nil
   end
 end
 
@@ -287,13 +310,13 @@ function M.attach_session(session_id)
     return false, "Session ID is required"
   end
 
-  local current = { session_id = state.session_id }
+  local current = current_target()
   local next = { session_id = trimmed }
   if current.session_id ~= next.session_id then
-    M.stop(current)
+    M.stop()
   end
 
-  state.session_id = trimmed
+  state.launch_session_id = trimmed
   state.follow_session = true
   M.start()
   return true
@@ -304,7 +327,7 @@ function M.sync_session_target(session_id)
   if not state.follow_session or not session_id or session_id == "" then
     return
   end
-  state.session_id = session_id
+  state.launch_session_id = session_id
 end
 
 return M

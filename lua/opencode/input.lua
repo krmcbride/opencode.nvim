@@ -163,6 +163,7 @@ function M.review(opts, on_confirm)
       on_close = function()
         if not done then
           done = true
+          pcall(vim.api.nvim_del_augroup_by_id, augroup)
           restore_parent()
           vim.schedule(function()
             on_confirm(nil)

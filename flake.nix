@@ -20,6 +20,21 @@
       {
         devShells.default = pkgs.mkShell {
           name = "opencode-nvim";
+
+          packages = with pkgs; [
+            bun
+            lua-language-server
+            lua5_1
+            lua51Packages.luacheck
+            luajit
+            ripgrep
+            stylua
+          ];
+
+          shellHook = ''
+            echo "Entered opencode.nvim dev shell"
+            echo "Available tools: stylua, luacheck, lua-language-server, bun"
+          '';
         };
       }
     );

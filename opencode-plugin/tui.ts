@@ -34,7 +34,6 @@ async function publish(api: TuiPluginApi, route: "home" | "session", sessionID?:
   }
   const body = JSON.stringify(payload)
   if (body === lastPayload) return
-  lastPayload = body
 
   try {
     const response = await fetch(bridgeUrl!, {
@@ -48,6 +47,9 @@ async function publish(api: TuiPluginApi, route: "home" | "session", sessionID?:
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`)
     }
+
+    lastPayload = body
+    notifiedError = false
   } catch (error) {
     if (!notifiedError) {
       notifiedError = true

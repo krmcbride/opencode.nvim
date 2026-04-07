@@ -280,7 +280,12 @@ end
 ---@param url string
 ---@param session_id string
 ---@param parts table[]
----@param opts? { directory?: string, agent?: string, model?: { providerID: string, modelID: string }, variant?: string }
+---@param opts? {
+---  directory?: string,
+---  agent?: string,
+---  model?: { providerID: string, modelID: string },
+---  variant?: string,
+---}
 ---@param callback? fun(err: string|nil, response: table|string|nil, status: integer|nil)
 function M.prompt_async(url, session_id, parts, opts, callback)
   local headers = nil

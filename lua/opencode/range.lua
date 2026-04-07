@@ -7,9 +7,8 @@ local function is_file_buffer(buf)
   return vim.api.nvim_get_option_value("buftype", { buf = buf }) == "" and vim.api.nvim_buf_get_name(buf) ~= ""
 end
 
----@param buf integer
 ---@return { start_line: integer, end_line: integer }|nil
-local function get_active_visual_line_range(buf)
+local function get_active_visual_line_range()
   local mode = vim.fn.mode(1)
   if not mode:match("^[vV\22]") then
     return nil
@@ -64,7 +63,7 @@ function M.current_selection_or_line()
   end
 
   local path = vim.api.nvim_buf_get_name(buf)
-  local visual = get_active_visual_line_range(buf)
+  local visual = get_active_visual_line_range()
   if visual then
     return {
       buf = buf,
@@ -92,7 +91,7 @@ function M.visual_selection()
   end
 
   local path = vim.api.nvim_buf_get_name(buf)
-  local range = get_active_visual_line_range(buf) or get_mark_line_range(buf)
+  local range = get_active_visual_line_range() or get_mark_line_range(buf)
   if not range then
     return nil, "No visual selection marks available"
   end

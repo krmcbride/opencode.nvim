@@ -84,7 +84,14 @@ end
 ---Format a location for the OpenCode TUI (line fragments use `#N` / `#N-M`, not `#LN`).
 ---With column bounds and a file path, uses `columns X-Y in @file#A-B` so the `@` ref stays last
 ---(matches TUI autocomplete: cursor after the range accepts the file part with Enter).
----@param args { buf?: integer, path?: string, start_line?: integer, start_col?: integer, end_line?: integer, end_col?: integer }
+---@param args {
+---  buf?: integer,
+---  path?: string,
+---  start_line?: integer,
+---  start_col?: integer,
+---  end_line?: integer,
+---  end_col?: integer,
+---}
 ---@return string
 local function format_location(args)
   if args.start_line and args.end_line and args.start_line > args.end_line then

@@ -120,7 +120,8 @@ end
 ---@field clear? boolean Clear the TUI input before appending
 ---@field submit? boolean Submit the TUI input after appending
 ---@field context? opencode.Context The context (defaults to current state)
----@field focus? boolean After append: focus the terminal, enter Terminal mode, move cursor to EOL (so `@` refs from Neovim land like a native TUI completion)
+---@field focus? boolean After append: focus the terminal, enter Terminal mode,
+---move cursor to EOL (so `@` refs from Neovim land like a native TUI completion)
 
 ---Send a prompt to opencode with context expansion.
 ---@param prompt string The prompt text (supports @this, @buffer, @diagnostics)
@@ -214,28 +215,33 @@ local function review_with_selection(selection)
         end)
       end
 
-      require("opencode.client").session_messages(url, bridge.session_id, { directory = bridge.cwd, limit = 100 }, function(err, response)
-        if err or type(response) ~= "table" then
-          send({ directory = bridge.cwd })
-          return
-        end
-
-        local last_user = nil
-        for i = #response, 1, -1 do
-          local item = response[i]
-          if type(item) == "table" and type(item.info) == "table" and item.info.role == "user" then
-            last_user = item.info
-            break
+      require("opencode.client").session_messages(
+        url,
+        bridge.session_id,
+        { directory = bridge.cwd, limit = 100 },
+        function(err, response)
+          if err or type(response) ~= "table" then
+            send({ directory = bridge.cwd })
+            return
           end
-        end
 
-        send({
-          directory = bridge.cwd,
-          agent = last_user and last_user.agent or nil,
-          model = last_user and last_user.model or nil,
-          variant = last_user and last_user.variant or nil,
-        })
-      end)
+          local last_user = nil
+          for i = #response, 1, -1 do
+            local item = response[i]
+            if type(item) == "table" and type(item.info) == "table" and item.info.role == "user" then
+              last_user = item.info
+              break
+            end
+          end
+
+          send({
+            directory = bridge.cwd,
+            agent = last_user and last_user.agent or nil,
+            model = last_user and last_user.model or nil,
+            variant = last_user and last_user.variant or nil,
+          })
+        end
+      )
     end)
   end)
 end
