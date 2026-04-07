@@ -116,6 +116,95 @@ function M.prompt(prompt, opts)
   end)
 end
 
+---@param selection { path: string, start_line: integer, end_line: integer }
+local function review_with_selection(selection)
+  local default_prompt
+  if selection.start_line == selection.end_line then
+    default_prompt = "Review line " .. tostring(selection.start_line)
+  else
+    default_prompt = "Review lines " .. tostring(selection.start_line) .. "-" .. tostring(selection.end_line)
+  end
+
+  vim.ui.input({
+    prompt = "Review message: ",
+    default = default_prompt,
+  }, function(input)
+    if input == nil then
+      return
+    end
+
+    local message = vim.trim(input)
+    if message == "" then
+      return
+    end
+
+    local bridge = require("opencode.bridge").get_state()
+    if bridge.route ~= "session" or not bridge.session_id then
+      vim.notify(
+        "No active OpenCode session selected in the embedded TUI",
+        vim.log.levels.ERROR,
+        { title = "opencode" }
+      )
+      return
+    end
+
+    require("opencode.server").get_url(function(url_err, url)
+      if url_err or not url then
+        vim.notify(url_err or "OpenCode backend unavailable", vim.log.levels.ERROR, { title = "opencode" })
+        return
+      end
+
+      local range = require("opencode.range")
+      local parts = {
+        {
+          type = "text",
+          text = message,
+        },
+        {
+          type = "file",
+          mime = "text/plain",
+          filename = range.display_name(selection.path, selection.start_line, selection.end_line),
+          url = range.file_url(selection.path, selection.start_line, selection.end_line),
+        },
+      }
+
+      require("opencode.client").prompt_async(url, bridge.session_id, parts, function(err)
+        if err then
+          vim.notify(err, vim.log.levels.ERROR, { title = "opencode" })
+          return
+        end
+
+        vim.notify("Sent review to active OpenCode session", vim.log.levels.INFO, { title = "opencode" })
+        require("opencode.client").ensure_subscribed(true)
+      end)
+    end)
+  end)
+end
+
+---Prompt for a review message and send the current line or active visual
+---selection directly to the active session as a ranged file attachment.
+function M.review_selection()
+  local selection, selection_err = require("opencode.range").current_selection_or_line()
+  if selection_err or not selection then
+    vim.notify(selection_err or "No file selection available", vim.log.levels.ERROR, { title = "opencode" })
+    return
+  end
+
+  review_with_selection(selection)
+end
+
+---Prompt for a review message and send the persisted visual marks as a ranged
+---file attachment. Prefer this for explicit visual-mode mappings.
+function M.review_visual_selection()
+  local selection, selection_err = require("opencode.range").visual_selection()
+  if selection_err or not selection then
+    vim.notify(selection_err or "No visual selection available", vim.log.levels.ERROR, { title = "opencode" })
+    return
+  end
+
+  review_with_selection(selection)
+end
+
 ---@alias opencode.Command
 ---| 'session.list'
 ---| 'session.new'

@@ -138,6 +138,86 @@ local function curl(url, method, body, callback)
   })
 end
 
+---@param url string
+---@param method string
+---@param body table|nil
+---@param callback fun(err: string|nil, response: table|string|nil, status: integer|nil)|nil
+---@return vim.SystemObj
+local function request_json(url, method, body, callback)
+  local command = {
+    "curl",
+    "-sS",
+    "--connect-timeout",
+    "1",
+    "-X",
+    method,
+    "-H",
+    "Content-Type: application/json",
+    "-H",
+    "Accept: application/json",
+    "-w",
+    "\n%{http_code}",
+  }
+
+  add_auth(command)
+
+  if body then
+    table.insert(command, "-d")
+    table.insert(command, vim.fn.json_encode(body))
+  end
+
+  table.insert(command, url)
+
+  return vim.system(command, { text = true }, function(result)
+    vim.schedule(function()
+      if result.code ~= 0 then
+        local err = "curl command failed with exit code: "
+          .. tostring(result.code)
+          .. "\nstderr:\n"
+          .. ((result.stderr and result.stderr ~= "") and result.stderr or "<none>")
+        if callback then
+          callback(err, nil, nil)
+        end
+        return
+      end
+
+      local stdout = result.stdout or ""
+      local response_text, status_text = stdout:match("^(.*)\n(%d%d%d)%s*$")
+      if not status_text then
+        response_text = stdout
+      end
+
+      local status = tonumber(status_text)
+      local decoded = nil
+      if response_text and response_text ~= "" then
+        local ok, value = pcall(vim.fn.json_decode, response_text)
+        decoded = ok and value or response_text
+      end
+
+      if status and status >= 200 and status < 300 then
+        if callback then
+          callback(nil, decoded, status)
+        end
+        return
+      end
+
+      local message = "HTTP request failed"
+      if status then
+        message = message .. " with status " .. tostring(status)
+      end
+      if type(decoded) == "table" and decoded.error then
+        message = message .. ": " .. tostring(decoded.error)
+      elseif type(decoded) == "string" and decoded ~= "" then
+        message = message .. ": " .. decoded
+      end
+
+      if callback then
+        callback(message, decoded, status)
+      end
+    end)
+  end)
+end
+
 ---Call an opencode server endpoint.
 ---@param url string
 ---@param path string
@@ -186,6 +266,15 @@ end
 ---@param callback? fun(response: table)
 function M.execute_command(url, command, callback)
   M.call(url, "/tui/publish", "POST", { type = "tui.command.execute", properties = { command = command } }, callback)
+end
+
+---Send prompt parts directly to a session.
+---@param url string
+---@param session_id string
+---@param parts table[]
+---@param callback? fun(err: string|nil, response: table|string|nil, status: integer|nil)
+function M.prompt_async(url, session_id, parts, callback)
+  return request_json(endpoint(url, "/session/" .. session_id .. "/prompt_async"), "POST", { parts = parts }, callback)
 end
 
 ---@class opencode.Event
