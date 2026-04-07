@@ -168,14 +168,39 @@ local function review_with_selection(selection)
         },
       }
 
-      require("opencode.client").prompt_async(url, bridge.session_id, parts, function(err)
-        if err then
-          vim.notify(err, vim.log.levels.ERROR, { title = "opencode" })
+      local function send(prompt_opts)
+        require("opencode.client").prompt_async(url, bridge.session_id, parts, prompt_opts, function(err)
+          if err then
+            vim.notify(err, vim.log.levels.ERROR, { title = "opencode" })
+            return
+          end
+
+          vim.notify("Sent review to active OpenCode session", vim.log.levels.INFO, { title = "opencode" })
+          require("opencode.client").ensure_subscribed(true)
+        end)
+      end
+
+      require("opencode.client").session_messages(url, bridge.session_id, { directory = bridge.cwd, limit = 100 }, function(err, response)
+        if err or type(response) ~= "table" then
+          send({ directory = bridge.cwd })
           return
         end
 
-        vim.notify("Sent review to active OpenCode session", vim.log.levels.INFO, { title = "opencode" })
-        require("opencode.client").ensure_subscribed(true)
+        local last_user = nil
+        for i = #response, 1, -1 do
+          local item = response[i]
+          if type(item) == "table" and type(item.info) == "table" and item.info.role == "user" then
+            last_user = item.info
+            break
+          end
+        end
+
+        send({
+          directory = bridge.cwd,
+          agent = last_user and last_user.agent or nil,
+          model = last_user and last_user.model or nil,
+          variant = last_user and last_user.variant or nil,
+        })
       end)
     end)
   end)

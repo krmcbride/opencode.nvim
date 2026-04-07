@@ -141,9 +141,10 @@ end
 ---@param url string
 ---@param method string
 ---@param body table|nil
+---@param headers? table<string, string>
 ---@param callback fun(err: string|nil, response: table|string|nil, status: integer|nil)|nil
 ---@return vim.SystemObj
-local function request_json(url, method, body, callback)
+local function request_json(url, method, body, headers, callback)
   local command = {
     "curl",
     "-sS",
@@ -160,6 +161,13 @@ local function request_json(url, method, body, callback)
   }
 
   add_auth(command)
+
+  if headers then
+    for key, value in pairs(headers) do
+      table.insert(command, "-H")
+      table.insert(command, key .. ": " .. value)
+    end
+  end
 
   if body then
     table.insert(command, "-d")
@@ -272,9 +280,46 @@ end
 ---@param url string
 ---@param session_id string
 ---@param parts table[]
+---@param opts? { directory?: string, agent?: string, model?: { providerID: string, modelID: string }, variant?: string }
 ---@param callback? fun(err: string|nil, response: table|string|nil, status: integer|nil)
-function M.prompt_async(url, session_id, parts, callback)
-  return request_json(endpoint(url, "/session/" .. session_id .. "/prompt_async"), "POST", { parts = parts }, callback)
+function M.prompt_async(url, session_id, parts, opts, callback)
+  local headers = nil
+  if opts and opts.directory then
+    headers = {
+      ["x-opencode-directory"] = vim.uri_encode(opts.directory),
+    }
+  end
+
+  local body = { parts = parts }
+  if opts and opts.agent then
+    body.agent = opts.agent
+  end
+  if opts and opts.model then
+    body.model = opts.model
+  end
+  if opts and opts.variant then
+    body.variant = opts.variant
+  end
+
+  return request_json(endpoint(url, "/session/" .. session_id .. "/prompt_async"), "POST", body, headers, callback)
+end
+
+---Fetch recent session messages.
+---@param url string
+---@param session_id string
+---@param opts? { directory?: string, limit?: integer }
+---@param callback? fun(err: string|nil, response: table|string|nil, status: integer|nil)
+function M.session_messages(url, session_id, opts, callback)
+  local headers = nil
+  if opts and opts.directory then
+    headers = {
+      ["x-opencode-directory"] = vim.uri_encode(opts.directory),
+    }
+  end
+
+  local limit = (opts and opts.limit) or 100
+  local path = "/session/" .. session_id .. "/message?limit=" .. tostring(limit)
+  return request_json(endpoint(url, path), "GET", nil, headers, callback)
 end
 
 ---@class opencode.Event
