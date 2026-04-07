@@ -9,6 +9,16 @@ function M.review(opts, on_confirm)
     local width = math.max(48, math.min(72, vim.o.columns - 8))
     local done = false
     local win
+    local parent_win = vim.api.nvim_get_current_win()
+
+    local function restore_parent()
+      vim.schedule(function()
+        pcall(vim.cmd.stopinsert)
+        if vim.api.nvim_win_is_valid(parent_win) then
+          vim.api.nvim_set_current_win(parent_win)
+        end
+      end)
+    end
 
     local function finish(value)
       if done then
@@ -18,6 +28,7 @@ function M.review(opts, on_confirm)
       if win and win:valid() then
         win:close()
       end
+      restore_parent()
       vim.schedule(function()
         on_confirm(value)
       end)
@@ -38,7 +49,7 @@ function M.review(opts, on_confirm)
       border = "rounded",
       title = opts.title or opts.prompt,
       title_pos = "left",
-      footer_keys = { "<cr>", "<s-cr>", "<c-j>", "<esc>" },
+      footer_keys = { "<c-s>", "q", "<c-c>" },
       bo = {
         buftype = "nofile",
         bufhidden = "wipe",
@@ -52,33 +63,30 @@ function M.review(opts, on_confirm)
         spell = false,
       },
       keys = {
+        q = false,
         submit = {
-          "<cr>",
+          "<c-s>",
           function(self)
             finish(vim.trim(self:text()))
           end,
           desc = "Submit",
-          mode = { "n", "i" },
-        },
-        newline = {
-          "<c-j>",
-          "<cr>",
-          desc = "New line",
-          mode = "i",
-        },
-        newline_shift = {
-          "<s-cr>",
-          "<cr>",
-          desc = "New line",
           mode = "i",
         },
         cancel = {
-          "<esc>",
+          "q",
           function()
             finish(nil)
           end,
           desc = "Cancel",
-          mode = { "n", "i" },
+          mode = "n",
+        },
+        cancel_ctrl = {
+          "<c-c>",
+          function()
+            finish(nil)
+          end,
+          desc = "Cancel",
+          mode = "i",
         },
       },
       on_win = function()
@@ -89,6 +97,7 @@ function M.review(opts, on_confirm)
       on_close = function()
         if not done then
           done = true
+          restore_parent()
           vim.schedule(function()
             on_confirm(nil)
           end)
