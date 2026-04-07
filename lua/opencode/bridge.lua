@@ -135,6 +135,12 @@ local function update_state(payload)
   state.session_id = state.route == "session" and payload.sessionID or nil
   state.cwd = payload.cwd or state.cwd
 
+  if state.session_id then
+    pcall(function()
+      require("opencode.terminal").sync_session_target(state.session_id)
+    end)
+  end
+
   vim.schedule(function()
     vim.api.nvim_exec_autocmds("User", {
       pattern = "OpencodeSessionChanged",
