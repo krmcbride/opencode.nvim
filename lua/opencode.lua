@@ -84,6 +84,38 @@ M.start = function(opts)
   end
 end
 
+---Attach the embedded TUI directly to a specific session id.
+---@param session_id string
+function M.attach_session(session_id)
+  local ok, err = require("opencode.terminal").attach_session(session_id)
+  if not ok then
+    vim.notify(err or "Failed to attach OpenCode session", vim.log.levels.ERROR, { title = "opencode" })
+    return
+  end
+
+  require("opencode.client").ensure_subscribed()
+  focus_terminal()
+end
+
+---Prompt for a session id and attach the embedded TUI to that session.
+function M.attach_session_prompt()
+  require("opencode.input").simple({
+    prompt = "OpenCode session ID: ",
+  }, function(value)
+    if value == nil then
+      return
+    end
+
+    local session_id = vim.trim(value)
+    if session_id == "" then
+      vim.notify("Session ID is required", vim.log.levels.WARN, { title = "opencode" })
+      return
+    end
+
+    M.attach_session(session_id)
+  end)
+end
+
 ---@class opencode.PromptOpts
 ---@field clear? boolean Clear the TUI input before appending
 ---@field submit? boolean Submit the TUI input after appending

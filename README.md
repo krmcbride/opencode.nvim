@@ -46,6 +46,7 @@ A simple Neovim plugin for [opencode](https://github.com/anomalyco/opencode) int
     { "<leader>aa", function() require("opencode").prompt("@this ", { focus = true }) end, mode = { "n", "x" }, desc = "Add to prompt" },
     { "<leader>ab", function() require("opencode").prompt("@buffer", { focus = true }) end, desc = "Add buffer to prompt" },
     { "<leader>ad", function() require("opencode").prompt("@diagnostics", { focus = true }) end, desc = "Add diagnostics to prompt" },
+    { "<leader>as", function() require("opencode").attach_session_prompt() end, desc = "Attach session ID" },
     { "<leader>av", function() require("opencode").review_selection() end, mode = "n", desc = "Review line" },
     { "<leader>av", function() require("opencode").review_visual_selection() end, mode = "x", desc = "Review selection" },
   },
@@ -114,6 +115,8 @@ require("opencode").toggle()                 -- Toggle the opencode terminal
 require("opencode").toggle({ focus = true }) -- Toggle and focus the terminal
 require("opencode").start()                  -- Start opencode if not running
 require("opencode").start({ focus = true })  -- Start and focus the terminal
+require("opencode").attach_session("ses_...") -- Attach directly to a specific session id
+require("opencode").attach_session_prompt()   -- Prompt for a session id, then attach
 require("opencode").status()                 -- Show terminal and SSE connection status
 ```
 

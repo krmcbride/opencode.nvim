@@ -4,6 +4,10 @@
 ---snacks terminal. The client attaches to a configured backend server.
 local M = {}
 local warned_username = false
+local state = {
+  session_id = nil,
+  follow_session = false,
+}
 
 local DEFAULT_SNACKS_OPTS = {
   auto_close = true,
@@ -63,10 +67,12 @@ local function get_env()
   return normalize_env(env)
 end
 
+---@param target? { session_id?: string|nil }
 ---@return string
-local function get_cmd()
+local function get_cmd(target)
   local config = require("opencode.config")
   local terminal = config.opts.terminal or {}
+  target = target or state
   if terminal.cmd then
     return terminal.cmd
   end
@@ -91,32 +97,42 @@ local function get_cmd()
     "--dir",
     quote(terminal.dir or "."),
   }
-  if terminal["continue"] ~= false then
+  if target.session_id and target.session_id ~= "" then
+    table.insert(cmd, "--session")
+    table.insert(cmd, quote(target.session_id))
+  elseif terminal["continue"] ~= false then
     table.insert(cmd, "--continue")
   end
   return table.concat(cmd, " ")
 end
 
-local function get_opts()
+---@param target? { session_id?: string|nil }
+local function get_opts(target)
   local config = require("opencode.config").opts.terminal or {}
   local snacks_opts = vim.deepcopy(DEFAULT_SNACKS_OPTS)
 
   snacks_opts.win.width = config.width
   snacks_opts.env = get_env()
 
-  return get_cmd(), snacks_opts
+  return get_cmd(target), snacks_opts
 end
 
 ---@return snacks.win|nil
-function M.get()
-  local cmd, snacks_opts = get_opts()
+---@param target? { session_id?: string|nil }
+---@param create? boolean
+function M.get(target, create)
+  local cmd, snacks_opts = get_opts(target)
   local opts = vim.tbl_deep_extend("force", snacks_opts, { create = false })
+  if create ~= nil then
+    opts.create = create
+  end
   return require("snacks.terminal").get(cmd, opts)
 end
 
 ---@return integer|nil
-local function get_buf()
-  local terminal = M.get()
+---@param target? { session_id?: string|nil }
+local function get_buf(target)
+  local terminal = M.get(target)
   if not terminal then
     return nil
   end
@@ -133,8 +149,9 @@ local function get_buf()
 end
 
 ---@return integer|nil
-local function get_job()
-  local buf = get_buf()
+---@param target? { session_id?: string|nil }
+local function get_job(target)
+  local buf = get_buf(target)
   if not buf then
     return nil
   end
@@ -148,8 +165,9 @@ local function get_job()
 end
 
 ---@param callback fun(err: string|nil, job: integer|nil)
-local function wait_job(callback)
-  local job = get_job()
+---@param target? { session_id?: string|nil }
+local function wait_job(callback, target)
+  local job = get_job(target)
   if job then
     callback(nil, job)
     return
@@ -171,7 +189,7 @@ local function wait_job(callback)
         return
       end
 
-      local next = get_job()
+      local next = get_job(target)
       if next then
         closed = true
         timer:stop()
@@ -196,7 +214,7 @@ end
 ---@param text string
 ---@param callback? fun(err: string|nil)
 function M.send(text, callback)
-  if not M.get() then
+  if not M.get(nil, false) then
     M.start()
   end
 
@@ -212,7 +230,7 @@ function M.send(text, callback)
     if callback then
       callback(nil)
     end
-  end)
+  end, nil)
 end
 
 ---@param command string
@@ -241,15 +259,16 @@ function M.toggle()
 end
 
 function M.start()
-  if not M.get() then
+  if not M.get(nil, false) then
     local cmd, snacks_opts = get_opts()
     require("snacks.terminal").open(cmd, snacks_opts)
   end
 end
 
-function M.stop()
-  local job = get_job()
-  local terminal = M.get()
+---@param target? { session_id?: string|nil }
+function M.stop(target)
+  local job = get_job(target)
+  local terminal = M.get(target)
 
   if job then
     vim.fn.jobstop(job)
@@ -258,6 +277,34 @@ function M.stop()
   if terminal then
     terminal:close()
   end
+end
+
+---@param session_id string
+---@return boolean, string?
+function M.attach_session(session_id)
+  local trimmed = vim.trim(session_id)
+  if trimmed == "" then
+    return false, "Session ID is required"
+  end
+
+  local current = { session_id = state.session_id }
+  local next = { session_id = trimmed }
+  if current.session_id ~= next.session_id then
+    M.stop(current)
+  end
+
+  state.session_id = trimmed
+  state.follow_session = true
+  M.start()
+  return true
+end
+
+---@param session_id string|nil
+function M.sync_session_target(session_id)
+  if not state.follow_session or not session_id or session_id == "" then
+    return
+  end
+  state.session_id = session_id
 end
 
 return M

@@ -1,6 +1,18 @@
 ---Input helpers for opencode.nvim.
 local M = {}
 
+---@param opts { prompt?: string, default?: string, completion?: string }
+---@param on_confirm fun(value?: string)
+function M.simple(opts, on_confirm)
+  local ok, snacks = pcall(require, "snacks")
+  if ok and snacks and snacks.input then
+    snacks.input(opts, on_confirm)
+    return
+  end
+
+  vim.ui.input(opts, on_confirm)
+end
+
 ---@param opts { prompt?: string, default?: string, title?: string }
 ---@param on_confirm fun(value?: string)
 function M.review(opts, on_confirm)
