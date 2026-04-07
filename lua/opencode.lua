@@ -118,16 +118,16 @@ end
 
 ---@param selection { path: string, start_line: integer, end_line: integer }
 local function review_with_selection(selection)
-  local default_prompt
+  local title
   if selection.start_line == selection.end_line then
-    default_prompt = "Review line " .. tostring(selection.start_line)
+    title = "Review line " .. tostring(selection.start_line)
   else
-    default_prompt = "Review lines " .. tostring(selection.start_line) .. "-" .. tostring(selection.end_line)
+    title = "Review lines " .. tostring(selection.start_line) .. "-" .. tostring(selection.end_line)
   end
 
-  vim.ui.input({
+  require("opencode.input").review({
     prompt = "Review message: ",
-    default = default_prompt,
+    title = title,
   }, function(input)
     if input == nil then
       return
@@ -135,6 +135,7 @@ local function review_with_selection(selection)
 
     local message = vim.trim(input)
     if message == "" then
+      vim.notify("Review message is required", vim.log.levels.WARN, { title = "opencode" })
       return
     end
 
