@@ -50,9 +50,14 @@ local function get_env()
   local terminal = config.opts.terminal or {}
   local env = vim.deepcopy(terminal.env or {})
   local auth = config.get_auth()
+  local bridge = require("opencode.bridge").ensure()
 
   if auth then
     env.OPENCODE_SERVER_PASSWORD = auth.password
+  end
+
+  for key, value in pairs(bridge) do
+    env[key] = value
   end
 
   return normalize_env(env)
