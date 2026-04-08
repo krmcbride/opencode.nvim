@@ -22,22 +22,22 @@ A simple Neovim plugin for [opencode](https://github.com/anomalyco/opencode) int
   dependencies = {
     { "folke/snacks.nvim", opts = { terminal = { enabled = true } } },
   },
+  opts = {
+    server = {
+      url = "http://127.0.0.1:4096",
+      username = "opencode",
+      password_env = "OPENCODE_SERVER_PASSWORD",
+    },
+    terminal = {
+      width = 0.43,
+      env = {
+        -- Example feature flags
+        OPENCODE_EXPERIMENT_A = 1,
+        OPENCODE_EXPERIMENT_B = "enabled",
+      },
+    },
+  },
   init = function()
-    vim.g.opencode_opts = {
-      server = {
-        url = "http://127.0.0.1:4096",
-        username = "opencode",
-        password_env = "OPENCODE_SERVER_PASSWORD",
-      },
-      terminal = {
-        width = 0.43,
-        env = {
-          -- Example feature flags
-          OPENCODE_EXPERIMENT_A = 1,
-          OPENCODE_EXPERIMENT_B = "enabled",
-        },
-      },
-    }
     -- Required for auto-reload when opencode edits files
     vim.o.autoread = true
   end,
@@ -53,29 +53,14 @@ A simple Neovim plugin for [opencode](https://github.com/anomalyco/opencode) int
 }
 ```
 
-> **Note:** The trailing space in `@this ` dismisses opencode's file picker, preserving the line number in the reference.
-
-### OpenCode TUI Plugin
-
-To track the active attached TUI session, OpenCode also needs the bundled TUI bridge plugin.
-Add it to your OpenCode `tui.json` plugin list, not `opencode.json`:
-
-```json
-{
-  "plugin": [
-    "file:///path/to/opencode.nvim/opencode-plugin"
-  ]
-}
-```
-
-The bridge plugin is inert unless `opencode.nvim` launches the TUI with its bridge environment variables.
+`vim.g.opencode_opts` is still supported as a backwards-compatible fallback, but `opts = { ... }` is now the preferred configuration style.
 
 ## Configuration
 
 All options with their defaults:
 
 ```lua
-vim.g.opencode_opts = {
+require("opencode").setup({
   server = {
     url = "http://127.0.0.1:4096",      -- Backend server URL
     username = "opencode",              -- Basic auth username
@@ -98,13 +83,31 @@ vim.g.opencode_opts = {
     width = 0.35,
     env = nil,
   },
+})
+```
+
+> **Environment variables:** Set OpenCode feature flags in `opts.terminal.env`.
+> **Auth note:** generated attach mode currently assumes the backend username is `opencode`.
+> **Width:** Set terminal width with `opts.terminal.width`.
+> Other terminal behavior uses plugin defaults.
+
+> **Note:** The trailing space in `@this ` dismisses opencode's file picker, preserving the line number in the reference.
+
+### OpenCode TUI Plugin
+
+To track the active attached TUI session, OpenCode also needs the bundled TUI bridge plugin.
+Add it to your OpenCode `tui.json` plugin list, not `opencode.json`:
+
+```json
+{
+  "plugin": [
+    "file:///path/to/opencode.nvim/opencode-plugin"
+  ]
 }
 ```
 
-> **Environment variables:** Set OpenCode feature flags in `vim.g.opencode_opts.terminal.env`.
-> **Auth note:** generated attach mode currently assumes the backend username is `opencode`.
-> **Width:** Set terminal width with `vim.g.opencode_opts.terminal.width`.
-> Other terminal behavior uses plugin defaults.
+The bridge plugin is inert unless `opencode.nvim` launches the TUI with its bridge environment variables.
+
 
 ## API
 
