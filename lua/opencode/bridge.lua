@@ -3,6 +3,9 @@
 ---The TUI plugin posts the currently visible session back to this Neovim
 ---instance so Lua can target the active session with direct API requests.
 local M = {}
+local constants = require("opencode.constants")
+local BRIDGE_PATH = constants.BRIDGE_PATH
+local BRIDGE_ENV = constants.BRIDGE_ENV
 
 local state = {
   server = nil,
@@ -198,7 +201,7 @@ local function handle_request(request)
 
   local method, target = line:match("^(%u+)%s+([^%s]+)")
   local path = target and normalize_target(target)
-  if method ~= "POST" or path ~= "/opencode/session" then
+  if method ~= "POST" or path ~= BRIDGE_PATH then
     return 400, '{"error":"bad request"}'
   end
 
@@ -290,9 +293,9 @@ end
 function M.ensure()
   if state.server and state.url and state.token and state.instance_id then
     return {
-      OPENCODE_NVIM_BRIDGE_URL = state.url,
-      OPENCODE_NVIM_BRIDGE_TOKEN = state.token,
-      OPENCODE_NVIM_INSTANCE_ID = state.instance_id,
+      [BRIDGE_ENV.URL] = state.url,
+      [BRIDGE_ENV.TOKEN] = state.token,
+      [BRIDGE_ENV.INSTANCE_ID] = state.instance_id,
     }
   end
 
@@ -345,14 +348,14 @@ function M.ensure()
   state.server = server
   state.token = generate_id()
   state.instance_id = generate_id()
-  state.url = "http://127.0.0.1:" .. tostring(socket.port) .. "/opencode/session"
+  state.url = "http://127.0.0.1:" .. tostring(socket.port) .. BRIDGE_PATH
 
   ensure_autocmd()
 
   return {
-    OPENCODE_NVIM_BRIDGE_URL = state.url,
-    OPENCODE_NVIM_BRIDGE_TOKEN = state.token,
-    OPENCODE_NVIM_INSTANCE_ID = state.instance_id,
+    [BRIDGE_ENV.URL] = state.url,
+    [BRIDGE_ENV.TOKEN] = state.token,
+    [BRIDGE_ENV.INSTANCE_ID] = state.instance_id,
   }
 end
 
