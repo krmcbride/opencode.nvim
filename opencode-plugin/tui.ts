@@ -16,6 +16,7 @@ let notifiedError = false;
 const forwardedEventTypes = [
   "session.status",
   "session.idle",
+  "session.error",
   "permission.asked",
   "permission.replied",
   "question.asked",
@@ -90,14 +91,22 @@ function currentState(api: TuiPluginApi) {
   };
 }
 
-async function publishEvent(api: TuiPluginApi, event: { type: string }) {
+function eventSessionID(event: { properties?: { sessionID?: unknown } }) {
+  return typeof event.properties?.sessionID === "string"
+    ? event.properties.sessionID
+    : null;
+}
+
+async function publishEvent(api: TuiPluginApi, event: { type: string; properties?: { sessionID?: unknown } }) {
   if (!canBridge()) return;
 
+  const current = currentState(api);
   const payload = {
     kind: "event",
     token: bridgeToken,
     instanceID,
-    ...currentState(api),
+    ...current,
+    sessionID: eventSessionID(event) ?? current.sessionID,
     event,
   };
 

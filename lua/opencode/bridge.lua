@@ -171,7 +171,7 @@ local function emit_active_event(payload)
   end
 
   local route = payload.route == "session" and "session" or "home"
-  local session_id = route == "session" and payload.sessionID or nil
+  local session_id = type(payload.sessionID) == "string" and payload.sessionID ~= "" and payload.sessionID or nil
   local cwd = payload.cwd or state.cwd
 
   vim.schedule(function()
