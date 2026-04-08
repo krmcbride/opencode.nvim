@@ -3,6 +3,7 @@
 ---Provides toggle/start/stop for a local opencode TUI client running in a
 ---snacks terminal. The client attaches to a configured backend server.
 local M = {}
+local TERMINAL_FILETYPE = require("opencode.constants").TERMINAL_FILETYPE
 local warned_username = false
 local state = {
   launch_session_id = nil,
@@ -22,7 +23,7 @@ local DEFAULT_SNACKS_OPTS = {
     position = "right",
     enter = false,
     wo = { winbar = "" },
-    bo = { filetype = "opencode_terminal" },
+    bo = { filetype = TERMINAL_FILETYPE },
   },
 }
 

@@ -6,9 +6,16 @@ import type {
 
 const id = "opencode-nvim-bridge";
 
-const bridgeUrl = process.env.OPENCODE_NVIM_BRIDGE_URL;
-const bridgeToken = process.env.OPENCODE_NVIM_BRIDGE_TOKEN;
-const instanceID = process.env.OPENCODE_NVIM_INSTANCE_ID;
+// Keep these bridge protocol constants aligned with `lua/opencode/constants.lua`.
+const BRIDGE_ENV = {
+  URL: "OPENCODE_NVIM_BRIDGE_URL",
+  TOKEN: "OPENCODE_NVIM_BRIDGE_TOKEN",
+  INSTANCE_ID: "OPENCODE_NVIM_INSTANCE_ID",
+} as const;
+
+const bridgeUrl = process.env[BRIDGE_ENV.URL];
+const bridgeToken = process.env[BRIDGE_ENV.TOKEN];
+const instanceID = process.env[BRIDGE_ENV.INSTANCE_ID];
 
 let lastPayload = "";
 let notifiedError = false;
@@ -97,7 +104,10 @@ function eventSessionID(event: { properties?: { sessionID?: unknown } }) {
     : null;
 }
 
-async function publishEvent(api: TuiPluginApi, event: { type: string; properties?: { sessionID?: unknown } }) {
+async function publishEvent(
+  api: TuiPluginApi,
+  event: { type: string; properties?: { sessionID?: unknown } },
+) {
   if (!canBridge()) return;
 
   const current = currentState(api);
