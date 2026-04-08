@@ -247,26 +247,6 @@ function M.send(text, callback)
   end, nil)
 end
 
----@param command string
----@param callback? fun(err: string|nil, handled: boolean|nil)
-function M.command(command, callback)
-  local keys = (require("opencode.config").opts.terminal or {}).keys or {}
-
-  local value = keys[command]
-  if not value then
-    if callback then
-      callback(nil, false)
-    end
-    return
-  end
-
-  M.send(value, function(err)
-    if callback then
-      callback(err, err == nil)
-    end
-  end)
-end
-
 function M.toggle()
   local terminal = M.get(nil, false)
   if terminal and terminal.buf_valid and terminal:buf_valid() then

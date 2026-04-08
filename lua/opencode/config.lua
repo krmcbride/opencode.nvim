@@ -19,7 +19,6 @@ local M = {}
 ---@field cmd? string Command to run (defaults to generated `opencode attach ...` command)
 ---@field dir? string Directory argument passed to `opencode attach`
 ---@field continue? boolean Continue the last session on launch (default: true)
----@field keys? table<string, string> Local key sequences for attach-mode commands
 ---@field width? number Terminal window width passed to snacks.win.width
 ---@field env? table<string, string|number|boolean> Environment variables for the opencode process
 
@@ -36,14 +35,6 @@ local defaults = {
     cmd = nil,
     dir = ".",
     continue = true,
-    keys = {
-      ["prompt.clear"] = "\005\021",
-      ["prompt.submit"] = "\r",
-      ["session.interrupt"] = "\027",
-      ["session.list"] = "\024l",
-      ["session.new"] = "\024n",
-      ["agent.cycle"] = "\t",
-    },
     width = 0.35,
     env = nil,
   },

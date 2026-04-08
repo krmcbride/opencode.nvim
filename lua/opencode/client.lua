@@ -292,17 +292,6 @@ function M.get_path(url)
   error("Failed to parse `opencode` path data: " .. curl_result.stdout, 0)
 end
 
----Execute a TUI command through the shared backend event bus.
----
----This is global to all TUI clients attached to the same server. Prefer local
----terminal control for commands scoped to one embedded TUI.
----@param url string
----@param command string
----@param callback? fun(response: table)
-function M.execute_command(url, command, callback)
-  M.call(url, "/tui/publish", "POST", { type = "tui.command.execute", properties = { command = command } }, callback)
-end
-
 ---Send prompt parts directly to a session.
 ---@param url string
 ---@param session_id string
