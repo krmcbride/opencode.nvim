@@ -454,7 +454,12 @@ function M.is_connected()
   return sse_state.connected
 end
 
----@return { connected: boolean, url: string|nil }
+---@class opencode.SseStatus
+---@field connected boolean
+---@field url string|nil
+---@field directory string|nil
+
+---@return opencode.SseStatus
 function M.get_status()
   return {
     connected = sse_state.connected,

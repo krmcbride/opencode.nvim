@@ -4,6 +4,14 @@
 ---snacks terminal. The client attaches to a configured backend server.
 local M = {}
 local TERMINAL_FILETYPE = require("opencode.constants").TERMINAL_FILETYPE
+
+---@class opencode.TerminalHandle
+---@field win integer|nil
+---@field buf integer|nil
+---@field buf_valid fun(self: opencode.TerminalHandle): boolean
+---@field toggle fun(self: opencode.TerminalHandle)
+---@field close fun(self: opencode.TerminalHandle)
+
 local warned_username = false
 local state = {
   launch_session_id = nil,
@@ -123,7 +131,7 @@ local function get_opts(target)
   return get_cmd(target), snacks_opts
 end
 
----@return snacks.win|nil
+---@return opencode.TerminalHandle|nil
 ---@param target? { session_id?: string|nil }
 ---@param create? boolean
 function M.get(target, create)
