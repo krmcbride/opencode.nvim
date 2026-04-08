@@ -12,7 +12,6 @@ local TERMINAL_FILETYPE = require("opencode.constants").TERMINAL_FILETYPE
 ---@field toggle fun(self: opencode.TerminalHandle)
 ---@field close fun(self: opencode.TerminalHandle)
 
-local warned_username = false
 local state = {
   launch_session_id = nil,
   follow_session = false,
@@ -71,6 +70,7 @@ local function get_env()
   local bridge = require("opencode.bridge").ensure()
 
   if auth then
+    env.OPENCODE_SERVER_USERNAME = auth.username
     env.OPENCODE_SERVER_PASSWORD = auth.password
   end
 
@@ -89,20 +89,6 @@ local function get_cmd(target)
   target = target or current_target()
   if terminal.cmd then
     return terminal.cmd
-  end
-
-  local auth = config.get_auth()
-  if auth and auth.username ~= "opencode" then
-    if not warned_username then
-      warned_username = true
-      vim.schedule(function()
-        vim.notify(
-          "Generated attach mode currently expects backend username `opencode`",
-          vim.log.levels.WARN,
-          { title = "opencode" }
-        )
-      end)
-    end
   end
 
   local cmd = {

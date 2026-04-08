@@ -24,8 +24,6 @@ A Neovim plugin for running a local [opencode](https://github.com/anomalyco/open
   opts = {
     server = {
       url = "http://127.0.0.1:4096",
-      username = "opencode",
-      password_env = "OPENCODE_SERVER_PASSWORD",
     },
     terminal = {
       width = 0.43,
@@ -61,10 +59,7 @@ All options with their defaults:
 ```lua
 require("opencode").setup({
   server = {
-    url = "http://127.0.0.1:4096",      -- Backend server URL
-    username = "opencode",              -- Basic auth username
-    password = nil,                      -- Optional inline password
-    password_env = "OPENCODE_SERVER_PASSWORD", -- Or read password from env
+    url = "http://127.0.0.1:4096", -- Backend server URL
   },
   auto_reload = true,          -- Reload matching buffers on OpenCode edit events
   terminal = {
@@ -79,7 +74,7 @@ require("opencode").setup({
 
 > **Environment variables:** Set OpenCode feature flags in `opts.terminal.env`.
 > **Auto-reload note:** `auto_reload = true` still depends on Neovim `autoread`; set `vim.o.autoread = true` in your config. External non-OpenCode edits only surface through `OpencodeEvent:file.watcher.updated` when the backend server file watcher is enabled.
-> **Auth note:** generated attach mode only passes the backend password through to the local `opencode attach` process. If your server uses a non-default username, use a custom `terminal.cmd`.
+> **Auth note:** backend auth is read from Neovim's `OPENCODE_SERVER_PASSWORD` and optional `OPENCODE_SERVER_USERNAME` environment variables. If you source credentials from a file or secret manager, populate `vim.env` before calling `require("opencode").setup(...)`.
 > **Width:** Set terminal width with `opts.terminal.width`.
 > Other terminal behavior uses plugin defaults.
 

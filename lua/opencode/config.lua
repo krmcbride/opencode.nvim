@@ -10,9 +10,6 @@ local M = {}
 
 ---@class opencode.ServerConfig
 ---@field url? string Backend URL for API and attach mode
----@field username? string Basic auth username
----@field password? string Basic auth password
----@field password_env? string Environment variable containing the password
 
 ---@class opencode.TerminalConfig
 ---@field cmd? string Command to run (defaults to generated `opencode attach ...` command)
@@ -25,9 +22,6 @@ local M = {}
 local defaults = {
   server = {
     url = "http://127.0.0.1:4096",
-    username = "opencode",
-    password = nil,
-    password_env = "OPENCODE_SERVER_PASSWORD",
   },
   auto_reload = true,
   terminal = {
@@ -62,36 +56,27 @@ function M.setup(opts)
   return M.opts
 end
 
----@param name string|nil
----@return string|nil
-local function getenv(name)
-  if not name then
-    return nil
-  end
-
-  local value = vim.env[name]
-  if value == nil or value == "" then
-    return nil
-  end
-
-  return value
-end
-
 ---@return string
 function M.get_url()
   return assert(M.opts.server and M.opts.server.url, "opencode server URL is not configured")
 end
 
+---Read backend auth from the standard OpenCode environment variables visible
+---to the Neovim process.
+---
+---`OPENCODE_SERVER_USERNAME` defaults to `opencode` upstream when omitted.
 ---@return { username: string, password: string }|nil
 function M.get_auth()
-  local server = M.opts.server or {}
-  local password = server.password or getenv(server.password_env)
+  local password = vim.env.OPENCODE_SERVER_PASSWORD
+  if password == "" then
+    password = nil
+  end
   if not password then
     return nil
   end
 
   return {
-    username = server.username or "opencode",
+    username = vim.env.OPENCODE_SERVER_USERNAME or "opencode",
     password = password,
   }
 end
