@@ -52,8 +52,6 @@ A Neovim plugin for running a local [opencode](https://github.com/anomalyco/open
 }
 ```
 
-`vim.g.opencode_opts` is still supported as a backwards-compatible fallback, but `opts = { ... }` is now the preferred configuration style.
-
 If you are not using `lazy.nvim`, call `require("opencode").setup({ ... })` yourself before using the plugin API.
 
 ## Configuration

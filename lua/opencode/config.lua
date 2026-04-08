@@ -1,7 +1,6 @@
 ---Configuration for opencode.nvim.
 ---
 ---Options are configured via `require("opencode").setup(opts)`.
----`vim.g.opencode_opts` is still supported as a backwards-compatible fallback.
 local M = {}
 
 ---@class opencode.Opts
@@ -54,12 +53,12 @@ local function merge_opts(...)
 end
 
 ---@type opencode.Opts
-M.opts = merge_opts(vim.g.opencode_opts)
+M.opts = merge_opts()
 
 ---@param opts? opencode.Opts
 ---@return opencode.Opts
 function M.setup(opts)
-  M.opts = merge_opts(vim.g.opencode_opts, opts)
+  M.opts = merge_opts(opts)
   return M.opts
 end
 
