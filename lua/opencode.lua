@@ -4,6 +4,12 @@
 ---send prompts with context expansion, and execute TUI commands.
 local M = {}
 
+---@param opts? opencode.Opts
+---@return opencode.Opts
+function M.setup(opts)
+  return require("opencode.config").setup(opts)
+end
+
 ---Move the TUI input cursor to end-of-line by sending Ctrl-E on the PTY.
 ---
 ---OpenCode's `@` file picker opens when the cursor is at the end of an `@path`

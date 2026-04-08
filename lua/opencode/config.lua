@@ -1,7 +1,6 @@
 ---Configuration for opencode.nvim.
 ---
----Options are set via `vim.g.opencode_opts` before the plugin loads,
----then merged with defaults when this module is first required.
+---Options are configured via `require("opencode").setup(opts)`.
 local M = {}
 
 ---@class opencode.Opts
@@ -22,9 +21,6 @@ local M = {}
 ---@field keys? table<string, string> Local key sequences for attach-mode commands
 ---@field width? number Terminal window width passed to snacks.win.width
 ---@field env? table<string, string|number|boolean> Environment variables for the opencode process
-
----@type opencode.Opts
-vim.g.opencode_opts = vim.g.opencode_opts
 
 ---@type opencode.Opts
 local defaults = {
@@ -52,8 +48,28 @@ local defaults = {
   },
 }
 
+---@param ... opencode.Opts?
+---@return opencode.Opts
+local function merge_opts(...)
+  local merged = vim.deepcopy(defaults)
+  for i = 1, select("#", ...) do
+    local opts = select(i, ...)
+    if type(opts) == "table" and not vim.tbl_isempty(opts) then
+      merged = vim.tbl_deep_extend("force", merged, opts)
+    end
+  end
+  return merged
+end
+
 ---@type opencode.Opts
-M.opts = vim.tbl_deep_extend("force", vim.deepcopy(defaults), vim.g.opencode_opts or {})
+M.opts = merge_opts()
+
+---@param opts? opencode.Opts
+---@return opencode.Opts
+function M.setup(opts)
+  M.opts = merge_opts(opts)
+  return M.opts
+end
 
 ---@param name string|nil
 ---@return string|nil

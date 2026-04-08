@@ -1,6 +1,6 @@
 # opencode.nvim
 
-A simple Neovim plugin for [opencode](https://github.com/anomalyco/opencode) integration via [snacks.nvim](https://github.com/folke/snacks.nvim) terminal.
+A Neovim plugin for running a local [opencode](https://github.com/anomalyco/opencode) attach-mode TUI inside a [snacks.nvim](https://github.com/folke/snacks.nvim) terminal, with Neovim-side session bridging and local integrations.
 
 ## Features
 
@@ -10,7 +10,7 @@ A simple Neovim plugin for [opencode](https://github.com/anomalyco/opencode) int
 - Send prompts with context expansion (`@this`, `@buffer`, `@diagnostics`)
 - Send direct review comments for the current line or visual range to the active session
 - Execute TUI commands (session management, scrolling, etc.)
-- Auto-reload buffers when opencode edits files
+- Auto-reload buffers when OpenCode edits files
 
 ## Setup
 
@@ -22,22 +22,22 @@ A simple Neovim plugin for [opencode](https://github.com/anomalyco/opencode) int
   dependencies = {
     { "folke/snacks.nvim", opts = { terminal = { enabled = true } } },
   },
+  opts = {
+    server = {
+      url = "http://127.0.0.1:4096",
+      username = "opencode",
+      password_env = "OPENCODE_SERVER_PASSWORD",
+    },
+    terminal = {
+      width = 0.43,
+      env = {
+        -- Example feature flags
+        OPENCODE_EXPERIMENT_A = 1,
+        OPENCODE_EXPERIMENT_B = "enabled",
+      },
+    },
+  },
   init = function()
-    vim.g.opencode_opts = {
-      server = {
-        url = "http://127.0.0.1:4096",
-        username = "opencode",
-        password_env = "OPENCODE_SERVER_PASSWORD",
-      },
-      terminal = {
-        width = 0.43,
-        env = {
-          -- Example feature flags
-          OPENCODE_EXPERIMENT_A = 1,
-          OPENCODE_EXPERIMENT_B = "enabled",
-        },
-      },
-    }
     -- Required for auto-reload when opencode edits files
     vim.o.autoread = true
   end,
@@ -52,6 +52,45 @@ A simple Neovim plugin for [opencode](https://github.com/anomalyco/opencode) int
   },
 }
 ```
+
+If you are not using `lazy.nvim`, call `require("opencode").setup({ ... })` yourself before using the plugin API.
+
+## Configuration
+
+All options with their defaults:
+
+```lua
+require("opencode").setup({
+  server = {
+    url = "http://127.0.0.1:4096",      -- Backend server URL
+    username = "opencode",              -- Basic auth username
+    password = nil,                      -- Optional inline password
+    password_env = "OPENCODE_SERVER_PASSWORD", -- Or read password from env
+  },
+  auto_reload = true,          -- Reload matching buffers on OpenCode edit events
+  terminal = {
+    cmd = nil,                -- Optional custom attach command
+    dir = ".",               -- Directory passed to `opencode attach`
+    continue = true,          -- Add `--continue` when launching the TUI
+    keys = {                  -- Defaults for local attach-mode key sequences
+      ["prompt.clear"] = "\005\021",
+      ["prompt.submit"] = "\r",
+      ["session.interrupt"] = "\027",
+      ["session.list"] = "\024l",
+      ["session.new"] = "\024n",
+      ["agent.cycle"] = "\t",
+    },
+    width = 0.35,
+    env = nil,
+  },
+})
+```
+
+> **Environment variables:** Set OpenCode feature flags in `opts.terminal.env`.
+> **Auto-reload note:** `auto_reload = true` still depends on Neovim `autoread`; set `vim.o.autoread = true` in your config. External non-OpenCode edits only surface through `OpencodeEvent:file.watcher.updated` when the backend server file watcher is enabled.
+> **Auth note:** generated attach mode only passes the backend password through to the local `opencode attach` process. If your server uses a non-default username, use a custom `terminal.cmd`.
+> **Width:** Set terminal width with `opts.terminal.width`.
+> Other terminal behavior uses plugin defaults.
 
 > **Note:** The trailing space in `@this ` dismisses opencode's file picker, preserving the line number in the reference.
 
@@ -70,41 +109,6 @@ Add it to your OpenCode `tui.json` plugin list, not `opencode.json`:
 
 The bridge plugin is inert unless `opencode.nvim` launches the TUI with its bridge environment variables.
 
-## Configuration
-
-All options with their defaults:
-
-```lua
-vim.g.opencode_opts = {
-  server = {
-    url = "http://127.0.0.1:4096",      -- Backend server URL
-    username = "opencode",              -- Basic auth username
-    password = nil,                      -- Optional inline password
-    password_env = "OPENCODE_SERVER_PASSWORD", -- Or read password from env
-  },
-  auto_reload = true,
-  terminal = {
-    cmd = nil,                -- Optional custom attach command
-    dir = ".",               -- Directory passed to `opencode attach`
-    continue = true,          -- Add `--continue` when launching the TUI
-    keys = {                  -- Defaults for local attach-mode key sequences
-      ["prompt.clear"] = "\005\021",
-      ["prompt.submit"] = "\r",
-      ["session.interrupt"] = "\027",
-      ["session.list"] = "\024l",
-      ["session.new"] = "\024n",
-      ["agent.cycle"] = "\t",
-    },
-    width = 0.35,
-    env = nil,
-  },
-}
-```
-
-> **Environment variables:** Set OpenCode feature flags in `vim.g.opencode_opts.terminal.env`.
-> **Auth note:** generated attach mode currently assumes the backend username is `opencode`.
-> **Width:** Set terminal width with `vim.g.opencode_opts.terminal.width`.
-> Other terminal behavior uses plugin defaults.
 
 ## API
 
@@ -211,9 +215,9 @@ require("opencode").command("session.interrupt")
 
 | Command | Description |
 | ------------------ | --------------------------------------- |
-| `:Opencode status` | Show terminal and SSE connection status |
+| `:Opencode status` | Show terminal, backend, bridge, and SSE status |
 
-`status` includes the bridged TUI route and active session so you can verify where direct reviews will be sent.
+`status` includes the backend URL, SSE directory, bridge URL, bridged TUI route, and active session so you can verify where events and direct reviews are going.
 
 ## Events
 
@@ -246,7 +250,7 @@ vim.api.nvim_create_autocmd("User", {
 })
 ```
 
-`OpencodeEvent:*` comes from the server SSE stream.
+`OpencodeEvent:*` comes from the server SSE stream for the currently subscribed backend directory.
 `OpencodeActiveEvent:*` comes from the embedded TUI bridge plugin and is scoped to the currently attached session, which makes it suitable for local integrations like statusline or tmux hooks.
 
 For `OpencodeActiveEvent:*`, `args.data` includes:
