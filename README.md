@@ -250,6 +250,7 @@ vim.api.nvim_create_autocmd("User", {
 `OpencodeActiveEvent:*` comes from the embedded TUI bridge plugin and is scoped to the currently attached session, which makes it suitable for local integrations like statusline or tmux hooks.
 
 For `OpencodeActiveEvent:*`, `args.data` includes:
+
 - `event`: the forwarded OpenCode event object
 - `route`: the local TUI route when the event was observed
 - `session_id`: the local attached session id when available
