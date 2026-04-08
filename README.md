@@ -9,7 +9,6 @@ A Neovim plugin for running a local [opencode](https://github.com/anomalyco/open
 - Snacks terminal integration for toggling opencode
 - Send prompts with context expansion (`@this`, `@buffer`, `@diagnostics`)
 - Send direct review comments for the current line or visual range to the active session
-- Execute TUI commands (session management, scrolling, etc.)
 - Auto-reload buffers when OpenCode edits files
 
 ## Setup
@@ -72,14 +71,6 @@ require("opencode").setup({
     cmd = nil,                -- Optional custom attach command
     dir = ".",               -- Directory passed to `opencode attach`
     continue = true,          -- Add `--continue` when launching the TUI
-    keys = {                  -- Defaults for local attach-mode key sequences
-      ["prompt.clear"] = "\005\021",
-      ["prompt.submit"] = "\r",
-      ["session.interrupt"] = "\027",
-      ["session.list"] = "\024l",
-      ["session.new"] = "\024n",
-      ["agent.cycle"] = "\t",
-    },
     width = 0.35,
     env = nil,
   },
@@ -108,7 +99,6 @@ Add it to your OpenCode `tui.json` plugin list, not `opencode.json`:
 ```
 
 The bridge plugin is inert unless `opencode.nvim` launches the TUI with its bridge environment variables.
-
 
 ## API
 
@@ -183,33 +173,6 @@ The review popup is a small cursor-anchored editor float:
 - `Enter` inserts a newline
 
 Direct review sends reuse the last persisted user message's `agent`, `model`, and `variant` when available, so they generally match the active session's existing model choice without requiring OpenCode core changes.
-
-### Commands
-
-```lua
-require("opencode").command("session.new")
-require("opencode").command("session.list")
-require("opencode").command("session.interrupt")
-```
-
-> **Attach mode note:** local prompt injection and a small set of common commands are scoped to the embedded terminal. Unsupported commands still fall back to OpenCode's shared `/tui/publish` backend event bus.
-
-**Available Commands:**
-
-| Command | Description |
-| --------------------------- | -------------------------------- |
-| `session.list` | List sessions |
-| `session.new` | Start new session |
-| `session.share` | Share current session |
-| `session.interrupt` | Interrupt current session |
-| `session.compact` | Compact session (reduce context) |
-| `session.page.up/down` | Scroll messages |
-| `session.half.page.up/down` | Scroll half page |
-| `session.first/last` | Jump to first/last message |
-| `session.undo/redo` | Undo/redo last action |
-| `prompt.submit` | Submit the TUI input |
-| `prompt.clear` | Clear the TUI input |
-| `agent.cycle` | Cycle the selected agent |
 
 ## User Commands
 

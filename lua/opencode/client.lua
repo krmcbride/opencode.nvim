@@ -292,17 +292,6 @@ function M.get_path(url)
   error("Failed to parse `opencode` path data: " .. curl_result.stdout, 0)
 end
 
----Execute a TUI command through the shared backend event bus.
----
----This is global to all TUI clients attached to the same server. Prefer local
----terminal control for commands scoped to one embedded TUI.
----@param url string
----@param command string
----@param callback? fun(response: table)
-function M.execute_command(url, command, callback)
-  M.call(url, "/tui/publish", "POST", { type = "tui.command.execute", properties = { command = command } }, callback)
-end
-
 ---Send prompt parts directly to a session.
 ---@param url string
 ---@param session_id string
@@ -465,7 +454,12 @@ function M.is_connected()
   return sse_state.connected
 end
 
----@return { connected: boolean, url: string|nil }
+---@class opencode.SseStatus
+---@field connected boolean
+---@field url string|nil
+---@field directory string|nil
+
+---@return opencode.SseStatus
 function M.get_status()
   return {
     connected = sse_state.connected,
