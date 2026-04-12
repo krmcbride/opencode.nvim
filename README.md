@@ -137,6 +137,10 @@ require("opencode").prompt("Explain this", { clear = true, submit = true })
 
 **Context Placeholders:**
 
+These placeholders are defined by `opencode.nvim`, not by OpenCode itself. The plugin expands them into plain prompt text and native OpenCode-style file references before sending the prompt to the attached TUI/backend.
+
+They only work when prompt text flows through `opencode.nvim` APIs like `require("opencode").prompt(...)` or mappings built on top of those APIs. Typing `@this`, `@buffer`, or `@diagnostics` directly into the OpenCode TUI does not trigger any special expansion.
+
 | Placeholder | Expands To | Description |
 | :------------- | :------------------------------------------------------------------- | :--------------------------------------------------------------------------------------------------------- |
 | `@this` | `@file.lua#21`, `@file.lua#21-30`, or `columns 8-15 in @file.lua#21` | Current line, line range, or single-line char selection (columns as text; `@…#` last for TUI autocomplete) |

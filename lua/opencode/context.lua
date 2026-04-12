@@ -1,34 +1,73 @@
----Context for prompts - captures editor state and provides placeholder expansion.
+---Prompt-context snapshot and placeholder expansion for opencode.nvim.
 ---
----Captures the current window, buffer, cursor position, and visual selection
----when created. Expands placeholders like @this, @buffer, @diagnostics in
----prompt strings to opencode's file reference format (e.g., `@file.lua#21-30`).
+---A `Context` captures editor state at the moment a prompt is assembled, before
+---focus may move into the embedded terminal. It owns placeholder expansion for
+---plugin-defined prompt shorthands like `@this`, `@buffer`, and `@diagnostics`.
+---
+---Those placeholders are invented by `opencode.nvim`, not by OpenCode itself.
+---This module rewrites them into plain prompt text and native OpenCode-style
+---file references before anything is sent to the TUI/backend.
+---
+---That means they only have effect when prompt text flows through plugin APIs
+---like `require("opencode").prompt(...)`. Typing `@this` directly into the
+---OpenCode TUI will not trigger any special expansion.
+---
+---This is distinct from `opencode.review`, which owns direct review sends and
+---their explicit file/line selection handling. `opencode.context` is about
+---prompt text expansion and OpenCode TUI file-reference formatting.
 ---@class opencode.Context
 ---@field win integer
 ---@field buf integer
----@field cursor integer[] { row, col } (1,0-based)
+---@field cursor opencode.context.Position { row, col } using Neovim's (1,0-based) cursor tuple
 ---@field range? opencode.context.Range
 local Context = {}
 Context.__index = Context
 
+---@type integer
 local ns_id = vim.api.nvim_create_namespace("OpencodeContext")
 
+---@class opencode.context.Position
+---@field [1] integer
+---@field [2] integer
+
 ---@class opencode.context.Range
----@field from integer[] { line, col } (1,0-based)
----@field to integer[] { line, col } (1,0-based)
+---@field from opencode.context.Position { line, col } (1,0-based)
+---@field to opencode.context.Position { line, col } (1,0-based)
 ---@field kind "char"|"line"|"block"
 
+---@class opencode.context.LocationArgs
+---@field buf? integer
+---@field path? string
+---@field start_line? integer
+---@field start_col? integer
+---@field end_line? integer
+---@field end_col? integer
+
+---@class opencode.context.Placeholder
+---@field pattern string
+---@field fn fun(): string|nil
+
+---Whether a buffer is a normal named file buffer suitable for prompt context.
+---@param buf integer
+---@return boolean
 local function is_buf_valid(buf)
   return vim.api.nvim_get_option_value("buftype", { buf = buf }) == "" and vim.api.nvim_buf_get_name(buf) ~= ""
 end
 
+---Pick the most recently used file window.
+---
+---Prompt commands may be invoked while focus is in the embedded terminal or a
+---float. For context capture we prefer the most recently used normal file
+---window rather than blindly using the current window.
+---@return integer
 local function last_used_valid_win()
   local last_used_win = 0
   local latest_last_used = 0
   for _, win in ipairs(vim.api.nvim_list_wins()) do
     local buf = vim.api.nvim_win_get_buf(win)
     if is_buf_valid(buf) then
-      local last_used = vim.fn.getbufinfo(buf)[1].lastused or 0
+      local info = vim.fn.getbufinfo(buf)[1]
+      local last_used = info and info.lastused or 0
       if last_used > latest_last_used then
         latest_last_used = last_used
         last_used_win = win
@@ -38,6 +77,10 @@ local function last_used_valid_win()
   return last_used_win
 end
 
+---Capture the current visual selection as a range snapshot.
+---
+---When invoked from Visual mode, exit Visual mode first so the `<` / `>` marks
+---settle to the final selection bounds before we read them.
 ---@param buf integer
 ---@return opencode.context.Range|nil
 local function get_selection(buf)
@@ -47,7 +90,7 @@ local function get_selection(buf)
     return nil
   end
 
-  -- Exit visual mode for consistent marks
+  -- Exit Visual mode so `<` and `>` marks reflect the final selection bounds.
   if vim.fn.mode():match("[vV\22]") then
     vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<esc>", true, false, true), "x", true)
   end
@@ -65,6 +108,7 @@ local function get_selection(buf)
   }
 end
 
+---Highlight the captured range so the active prompt context remains visible.
 ---@param buf integer
 ---@param range opencode.context.Range
 local function highlight_range(buf, range)
@@ -81,17 +125,13 @@ local function highlight_range(buf, range)
   })
 end
 
----Format a location for the OpenCode TUI (line fragments use `#N` / `#N-M`, not `#LN`).
----With column bounds and a file path, uses `columns X-Y in @file#A-B` so the `@` ref stays last
----(matches TUI autocomplete: cursor after the range accepts the file part with Enter).
----@param args {
----  buf?: integer,
----  path?: string,
----  start_line?: integer,
----  start_col?: integer,
----  end_line?: integer,
----  end_col?: integer,
----}
+---Format an OpenCode TUI file/location reference.
+---
+---Line fragments use `#N` / `#N-M`, not `#LN`. When column precision is also
+---available, emit `columns X-Y in @file#A-B` so the `@file...` reference stays
+---last; that matches the TUI's autocomplete behavior when the cursor lands at
+---the end of the file reference.
+---@param args opencode.context.LocationArgs
 ---@return string
 local function format_location(args)
   if args.start_line and args.end_line and args.start_line > args.end_line then
@@ -138,10 +178,14 @@ local function format_location(args)
   return result
 end
 
----Create a new context capturing current editor state.
+---Create a new prompt context by snapshotting current editor state.
+---
+---The snapshot is intentionally eager so later terminal focus changes do not
+---change what `@this` / `@buffer` / `@diagnostics` refer to.
 ---@param range? opencode.context.Range Optional range override
 ---@return opencode.Context
 function Context.new(range)
+  ---@type opencode.Context
   local self = setmetatable({}, Context)
   self.win = last_used_valid_win()
   self.buf = vim.api.nvim_win_get_buf(self.win)
@@ -153,12 +197,12 @@ function Context.new(range)
   return self
 end
 
----Clear context highlights.
+---Clear any temporary highlight created for this context snapshot.
 function Context:clear()
   vim.api.nvim_buf_clear_namespace(self.buf, ns_id, 0, -1)
 end
 
----Get @this: range if present, else current line.
+---Expand `@this` to the captured selection or current line.
 ---@return string
 function Context:this()
   if self.range then
@@ -181,13 +225,16 @@ function Context:this()
   end
 end
 
----Get @buffer: current buffer path.
+---Expand `@buffer` to the captured buffer path.
 ---@return string
 function Context:buffer()
   return format_location({ buf = self.buf })
 end
 
----Get @diagnostics: LSP diagnostics for current buffer.
+---Expand `@diagnostics` to a formatted diagnostic summary for the buffer.
+---
+---The returned text is prompt prose plus a trailing file reference, not just a
+---bare `@file...` token.
 ---@return string|nil
 function Context:diagnostics()
   local diagnostics = vim.diagnostic.get(self.buf)
@@ -196,12 +243,14 @@ function Context:diagnostics()
   end
 
   local file_ref = format_location({ buf = self.buf })
+  ---@type string[]
   local diagnostic_strings = {}
 
   for _, diagnostic in ipairs(diagnostics) do
+    local end_lnum = diagnostic.end_lnum or diagnostic.lnum
     local location = format_location({
       start_line = diagnostic.lnum + 1,
-      end_line = diagnostic.end_lnum + 1,
+      end_line = end_lnum + 1,
     })
     table.insert(
       diagnostic_strings,
@@ -220,10 +269,14 @@ function Context:diagnostics()
     .. file_ref
 end
 
----Expand context placeholders in a prompt.
+---Expand supported context placeholders in a prompt string.
+---
+---Placeholder patterns are applied longest-first so overlapping names remain
+---stable if more placeholders are added later.
 ---@param prompt string
 ---@return string
 function Context:expand(prompt)
+  ---@type opencode.context.Placeholder[]
   local placeholders = {
     {
       pattern = "@this",
