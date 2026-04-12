@@ -329,6 +329,7 @@ function M.status()
   table.insert(lines, "Terminal: " .. (terminal and "running" or "not running"))
   if sse.connected then
     table.insert(lines, "SSE: connected to " .. sse.url)
+    table.insert(lines, "SSE directory: " .. (sse.directory or "none"))
   else
     table.insert(lines, "SSE: not connected")
   end

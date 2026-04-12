@@ -7,6 +7,7 @@ local M = {}
 --- Tracks the current SSE connection state. Only one connection at a time.
 local sse_state = {
   url = nil,
+  directory = nil,
   ---@type number|nil
   job_id = nil,
   connected = false,
@@ -39,6 +40,32 @@ end
 ---@return string
 local function endpoint(base, path)
   return base:gsub("/$", "") .. path
+end
+
+---@return string|nil
+local function subscription_directory()
+  local ok, bridge = pcall(require, "opencode.bridge")
+  if ok then
+    local state = bridge.get_state()
+    if state.cwd and state.cwd ~= "" then
+      return state.cwd
+    end
+  end
+
+  local terminal = require("opencode.config").opts.terminal or {}
+  local dir = terminal.dir or "."
+  return vim.fs.normalize(vim.fn.fnamemodify(dir, ":p"))
+end
+
+---@param base string
+---@return string
+local function sse_endpoint(base)
+  local url = endpoint(base, "/event")
+  local directory = subscription_directory()
+  if directory and directory ~= "" then
+    url = url .. "?directory=" .. vim.uri_encode(directory)
+  end
+  return url
 end
 
 ---@param url string
@@ -335,7 +362,8 @@ end
 ---@param url string
 ---@param callback? fun(event: opencode.Event)
 function M.sse_subscribe(url, callback)
-  if sse_state.url == url and sse_state.connected then
+  local directory = subscription_directory()
+  if sse_state.url == url and sse_state.directory == directory and sse_state.connected then
     return
   end
 
@@ -346,8 +374,9 @@ function M.sse_subscribe(url, callback)
   local first_event = true
   sse_state = {
     url = url,
+    directory = directory,
     connected = false,
-    job_id = M.call(url, "/event", "GET", nil, function(response)
+    job_id = curl(sse_endpoint(url), "GET", nil, function(response)
       if first_event then
         first_event = false
         sse_state.connected = true
@@ -384,7 +413,7 @@ function M.sse_unsubscribe()
   end
 
   local was_connected = sse_state.connected
-  sse_state = { url = nil, job_id = nil, connected = false }
+  sse_state = { url = nil, directory = nil, job_id = nil, connected = false }
 
   if was_connected then
     vim.notify("SSE disconnected", vim.log.levels.INFO, { title = "opencode" })
@@ -403,7 +432,7 @@ function M.sse_reconnect(reason)
   if sse_state.job_id then
     vim.fn.jobstop(sse_state.job_id)
   end
-  sse_state = { url = nil, job_id = nil, connected = false }
+  sse_state = { url = nil, directory = nil, job_id = nil, connected = false }
 
   if was_connected then
     vim.notify(
@@ -441,6 +470,7 @@ function M.get_status()
   return {
     connected = sse_state.connected,
     url = sse_state.url,
+    directory = sse_state.directory,
   }
 end
 

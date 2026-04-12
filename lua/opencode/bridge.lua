@@ -131,14 +131,23 @@ end
 
 ---@param payload table<string, any>
 local function update_state(payload)
-  state.route = payload.route == "session" and "session" or "home"
-  state.session_id = state.route == "session" and payload.sessionID or nil
-  state.cwd = payload.cwd or state.cwd
+  local next_route = payload.route == "session" and "session" or "home"
+  local next_session_id = next_route == "session" and payload.sessionID or nil
+  local next_cwd = payload.cwd or state.cwd
+  local changed = state.route ~= next_route or state.session_id ~= next_session_id or state.cwd ~= next_cwd
+
+  state.route = next_route
+  state.session_id = next_session_id
+  state.cwd = next_cwd
 
   if state.session_id then
     pcall(function()
       require("opencode.terminal").sync_session_target(state.session_id)
     end)
+  end
+
+  if not changed then
+    return
   end
 
   vim.schedule(function()
@@ -148,6 +157,32 @@ local function update_state(payload)
         route = state.route,
         session_id = state.session_id,
         instance_id = state.instance_id,
+        cwd = state.cwd,
+      },
+    })
+  end)
+end
+
+---@param payload table<string, any>
+local function emit_active_event(payload)
+  local event = payload.event
+  if type(event) ~= "table" or type(event.type) ~= "string" or event.type == "" then
+    return
+  end
+
+  local route = payload.route == "session" and "session" or "home"
+  local session_id = type(payload.sessionID) == "string" and payload.sessionID ~= "" and payload.sessionID or nil
+  local cwd = payload.cwd or state.cwd
+
+  vim.schedule(function()
+    vim.api.nvim_exec_autocmds("User", {
+      pattern = "OpencodeActiveEvent:" .. event.type,
+      data = {
+        event = event,
+        route = route,
+        session_id = session_id,
+        instance_id = state.instance_id,
+        cwd = cwd,
       },
     })
   end)
@@ -177,7 +212,17 @@ local function handle_request(request)
     return 403, '{"error":"forbidden"}'
   end
 
+  if payload.kind == "event" then
+    if type(payload.event) ~= "table" or type(payload.event.type) ~= "string" then
+      return 400, '{"error":"invalid event"}'
+    end
+
+    emit_active_event(payload)
+    return 200, '{"ok":true}'
+  end
+
   update_state(payload)
+
   return 200, '{"ok":true}'
 end
 
