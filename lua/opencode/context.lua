@@ -214,7 +214,10 @@ function Context:diagnostics()
     )
   end
 
-  return #diagnostics .. " diagnostics in " .. file_ref .. "\n" .. table.concat(diagnostic_strings, "\n")
+  return "Check the following diagnostics for me:\n\n"
+    .. table.concat(diagnostic_strings, "\n")
+    .. "\n\nin "
+    .. file_ref
 end
 
 ---Expand context placeholders in a prompt.
