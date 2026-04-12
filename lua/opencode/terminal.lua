@@ -1,27 +1,39 @@
 ---Terminal management for opencode via snacks.nvim.
 ---
 ---Provides toggle/start/stop for a local opencode TUI client running in a
----snacks terminal. The client attaches to a configured backend server.
+---snacks terminal. Backend config lives in `opencode.config`, bridge transport
+---lives in `opencode.bridge`, and attached-session coordination lives in
+---`opencode.session`.
 local M = {}
+local bridge = require("opencode.bridge")
+local config = require("opencode.config")
 local TERMINAL_FILETYPE = require("opencode.constants").TERMINAL_FILETYPE
+local session = require("opencode.session")
 
----@class opencode.TerminalHandle
----@field win integer|nil
----@field buf integer|nil
----@field buf_valid fun(self: opencode.TerminalHandle): boolean
----@field toggle fun(self: opencode.TerminalHandle)
----@field close fun(self: opencode.TerminalHandle)
+---@class opencode.TerminalTarget
+---@field session_id? string|nil Explicit session id to attach to. When absent, the generated command follows the default attach behavior.
+
+---snacks.nvim terminal handles are `snacks.win` instances. Reuse the upstream
+---type directly so LuaLS agrees with `snacks.terminal.get()` / `.open()`.
+---@alias opencode.TerminalHandle snacks.win
 
 local state = {
-  launch_session_id = nil,
-  follow_session = false,
+  ---@type opencode.TerminalHandle|nil
   terminal = nil,
 }
 
+---Return the attach target the local terminal should use right now.
+---
+---The terminal does not own attach-session coordination itself; it reads the
+---current target from `opencode.session`.
+---@return opencode.TerminalTarget
 local function current_target()
-  return { session_id = state.launch_session_id }
+  return { session_id = session.get_target_session_id() }
 end
 
+---Default snacks.nvim terminal options for the embedded opencode TUI.
+---
+---Per-launch values like width and environment are merged in later.
 local DEFAULT_SNACKS_OPTS = {
   auto_close = true,
   start_insert = true,
@@ -34,6 +46,10 @@ local DEFAULT_SNACKS_OPTS = {
   },
 }
 
+---Normalize an env map for `jobstart`/`termopen` consumption.
+---
+---Terminal config may provide string, number, or boolean values. The child
+---process environment must be string-keyed and string-valued.
 ---@param env table<string, string|number|boolean>|nil
 ---@return table<string, string>|nil
 local function normalize_env(env)
@@ -55,36 +71,48 @@ local function normalize_env(env)
   return normalized
 end
 
+---Shell-quote a single argument for the generated `opencode attach` command.
+---
+---This is only used for the generated command path. A custom `terminal.cmd`
+---bypasses this helper entirely.
 ---@param text string
 ---@return string
 local function quote(text)
   return '"' .. text:gsub("\\", "\\\\"):gsub('"', '\\"') .. '"'
 end
 
+---Build the environment for the embedded attach-mode process.
+---
+---This merges three sources:
+---1. user-provided `terminal.env`
+---2. backend auth env inherited from Neovim config
+---3. bridge env so the TUI can report active-session state back to Neovim
 ---@return table<string, string>|nil
 local function get_env()
-  local config = require("opencode.config")
   local terminal = config.opts.terminal or {}
   local env = vim.deepcopy(terminal.env or {})
   local auth = config.get_auth()
-  local bridge = require("opencode.bridge").ensure()
+  local bridge_env = bridge.ensure()
 
   if auth then
     env.OPENCODE_SERVER_USERNAME = auth.username
     env.OPENCODE_SERVER_PASSWORD = auth.password
   end
 
-  for key, value in pairs(bridge) do
+  for key, value in pairs(bridge_env) do
     env[key] = value
   end
 
   return normalize_env(env)
 end
 
----@param target? { session_id?: string|nil }
+---Build the command used to launch the embedded terminal.
+---
+---If `terminal.cmd` is configured, use it verbatim as the escape hatch. The
+---generated path builds `opencode attach ...` from structured config.
+---@param target? opencode.TerminalTarget
 ---@return string
 local function get_cmd(target)
-  local config = require("opencode.config")
   local terminal = config.opts.terminal or {}
   target = target or current_target()
   if terminal.cmd then
@@ -106,19 +134,22 @@ local function get_cmd(target)
   return table.concat(cmd, " ")
 end
 
----@param target? { session_id?: string|nil }
+---Build snacks.nvim options for the requested terminal target.
+---@param target? opencode.TerminalTarget
+---@return string, table
 local function get_opts(target)
-  local config = require("opencode.config").opts.terminal or {}
+  local terminal = config.opts.terminal or {}
+  ---@type table
   local snacks_opts = vim.deepcopy(DEFAULT_SNACKS_OPTS)
 
-  snacks_opts.win.width = config.width
+  snacks_opts.win.width = terminal.width
   snacks_opts.env = get_env()
 
   return get_cmd(target), snacks_opts
 end
 
 ---@return opencode.TerminalHandle|nil
----@param target? { session_id?: string|nil }
+---@param target? opencode.TerminalTarget
 ---@param create? boolean
 function M.get(target, create)
   if target == nil and state.terminal and state.terminal.buf_valid and state.terminal:buf_valid() then
@@ -126,6 +157,7 @@ function M.get(target, create)
   end
 
   local cmd, snacks_opts = get_opts(target)
+  ---@type table
   local opts = vim.tbl_deep_extend("force", snacks_opts, { create = false })
   if create ~= nil then
     opts.create = create
@@ -137,8 +169,9 @@ function M.get(target, create)
   return terminal
 end
 
+---Resolve the backing buffer for a terminal handle/target.
 ---@return integer|nil
----@param target? { session_id?: string|nil }
+---@param target? opencode.TerminalTarget
 local function get_buf(target)
   local terminal = M.get(target)
   if not terminal then
@@ -156,8 +189,9 @@ local function get_buf(target)
   return nil
 end
 
+---Resolve the terminal job id for a handle/target.
 ---@return integer|nil
----@param target? { session_id?: string|nil }
+---@param target? opencode.TerminalTarget
 local function get_job(target)
   local buf = get_buf(target)
   if not buf then
@@ -172,8 +206,12 @@ local function get_job(target)
   return nil
 end
 
+---Wait briefly for the terminal PTY job to exist after opening snacks.nvim.
+---
+---`snacks.terminal.open()` returns before the job id is always available on the
+---buffer, so prompt injection may need to poll for a short period.
 ---@param callback fun(err: string|nil, job: integer|nil)
----@param target? { session_id?: string|nil }
+---@param target? opencode.TerminalTarget
 local function wait_job(callback, target)
   local job = get_job(target)
   if job then
@@ -219,6 +257,10 @@ local function wait_job(callback, target)
   )
 end
 
+---Send raw text directly to the embedded terminal PTY.
+---
+---Starts the terminal first if needed, then waits for the job id before
+---sending the text.
 ---@param text string
 ---@param callback? fun(err: string|nil)
 function M.send(text, callback)
@@ -241,6 +283,7 @@ function M.send(text, callback)
   end, nil)
 end
 
+---Toggle the primary embedded opencode terminal.
 function M.toggle()
   local terminal = M.get(nil, false)
   if terminal and terminal.buf_valid and terminal:buf_valid() then
@@ -252,6 +295,7 @@ function M.toggle()
   state.terminal = require("snacks.terminal").open(cmd, snacks_opts)
 end
 
+---Start the primary embedded opencode terminal if it is not already running.
 function M.start()
   if not M.get(nil, false) then
     local cmd, snacks_opts = get_opts(current_target())
@@ -259,7 +303,8 @@ function M.start()
   end
 end
 
----@param target? { session_id?: string|nil }
+---Stop a terminal by target, or stop the primary cached terminal when omitted.
+---@param target? opencode.TerminalTarget
 function M.stop(target)
   local terminal = target == nil and state.terminal or M.get(target)
   local job = get_job(target)
@@ -275,34 +320,6 @@ function M.stop(target)
   if target == nil or state.terminal == terminal then
     state.terminal = nil
   end
-end
-
----@param session_id string
----@return boolean, string?
-function M.attach_session(session_id)
-  local trimmed = vim.trim(session_id)
-  if trimmed == "" then
-    return false, "Session ID is required"
-  end
-
-  local current = current_target()
-  local next = { session_id = trimmed }
-  if current.session_id ~= next.session_id then
-    M.stop()
-  end
-
-  state.launch_session_id = trimmed
-  state.follow_session = true
-  M.start()
-  return true
-end
-
----@param session_id string|nil
-function M.sync_session_target(session_id)
-  if not state.follow_session or not session_id or session_id == "" then
-    return
-  end
-  state.launch_session_id = session_id
 end
 
 return M

@@ -1,22 +1,63 @@
----Local HTTP bridge for the embedded OpenCode TUI.
+---Local HTTP bridge between the embedded OpenCode TUI process and Neovim.
 ---
----The TUI plugin posts the currently visible session back to this Neovim
----instance so Lua can target the active session with direct API requests.
+---This is not the backend API client.
+---
+---Flow overview:
+---
+---  Neovim Lua                  child `opencode attach` TUI
+---  (this plugin)               + bundled `opencode-plugin/tui.ts`
+---       ^                                   |
+---       |  localhost HTTP POST              |
+---       +---------(this module)-------------+
+---
+---  Separate path:
+---  Neovim Lua  <---- HTTP/SSE ---->  OpenCode backend
+---
+---The embedded `opencode attach` terminal runs in a child process, so it cannot
+---call Neovim Lua directly. Instead, the bundled TUI plugin
+---(`opencode-plugin/tui.ts`) reads bridge env vars, posts JSON payloads to a
+---loopback HTTP server owned by this module, and reports:
+---1. which TUI route/session is currently visible
+---2. the TUI process cwd
+---3. selected TUI events that Neovim may want to react to
+---
+---Active attached-session state is delegated to `opencode.session`.
 local M = {}
 local constants = require("opencode.constants")
+local session = require("opencode.session")
 local BRIDGE_PATH = constants.BRIDGE_PATH
 local BRIDGE_ENV = constants.BRIDGE_ENV
 
+---@alias opencode.BridgeRoute "home"|"session"
+
+---@class opencode.BridgePayload
+---@field token string|nil
+---@field instanceID string|nil
+---@field route opencode.BridgeRoute|nil
+---@field sessionID string|nil
+---@field cwd string|nil
+---@field kind? "event"|nil
+---@field event? opencode.Event
+
+---@class opencode.BridgeRuntimeState
+---@field server uv.uv_tcp_t|nil
+---@field url string|nil
+---@field token string|nil
+---@field instance_id string|nil
+
+---@type opencode.BridgeRuntimeState
 local state = {
   server = nil,
   url = nil,
   token = nil,
   instance_id = nil,
-  route = "home",
-  session_id = nil,
-  cwd = nil,
 }
 
+---Normalize the raw HTTP request target to just the bridge path.
+---
+---Some runtimes may send an absolute-form target like
+---`http://127.0.0.1:PORT/opencode/session`; the bridge only cares about the
+---path component when matching requests.
 ---@param target string
 ---@return string
 local function normalize_target(target)
@@ -30,9 +71,14 @@ local function normalize_target(target)
   return target
 end
 
+---Decode a chunked HTTP request body.
+---
+---The local bridge server reads raw TCP bytes, so it must handle transfer
+---encodings itself when the embedded TUI runtime sends chunked POST bodies.
 ---@param body string
 ---@return string|nil
 local function decode_chunked(body)
+  ---@type string[]
   local out = {}
   local index = 1
 
@@ -72,9 +118,15 @@ local function decode_chunked(body)
   end
 end
 
+---Decode a JSON object from a sanitized HTTP body candidate.
+---
+---The bridge is intentionally tolerant here because raw TCP reads may include
+---NUL bytes, surrounding whitespace, or extra framing artifacts around the JSON
+---object before the request parser has fully normalized the payload.
 ---@param body string
----@return table<string, any>|nil
+---@return opencode.BridgePayload|nil
 local function decode_json_body(body)
+  ---@type string[]
   local candidates = {}
 
   local cleaned = body:gsub("%z", ""):gsub("^%s+", ""):gsub("%s+$", "")
@@ -111,11 +163,13 @@ end
 
 local autocmd_registered = false
 
----@param client uv_tcp_t
+---Write a minimal HTTP/1.1 response and close the client socket.
+---@param client uv.uv_tcp_t
 ---@param status integer
 ---@param body string
 local function respond(client, status, body)
   local text = body or ""
+  ---@type string[]
   local lines = {
     ("HTTP/1.1 %d %s"):format(status, status == 200 and "OK" or status == 403 and "Forbidden" or "Bad Request"),
     "Content-Type: application/json",
@@ -132,50 +186,36 @@ local function respond(client, status, body)
   end)
 end
 
----@param payload table<string, any>
+---Apply a state publish from the embedded TUI.
+---
+---Regular bridge publishes report the current visible route/session/cwd. The
+---session module owns that state and emits `OpencodeSessionChanged` when it
+---actually changes.
+---@param payload opencode.BridgePayload
 local function update_state(payload)
-  local next_route = payload.route == "session" and "session" or "home"
-  local next_session_id = next_route == "session" and payload.sessionID or nil
-  local next_cwd = payload.cwd or state.cwd
-  local changed = state.route ~= next_route or state.session_id ~= next_session_id or state.cwd ~= next_cwd
-
-  state.route = next_route
-  state.session_id = next_session_id
-  state.cwd = next_cwd
-
-  if state.session_id then
-    pcall(function()
-      require("opencode.terminal").sync_session_target(state.session_id)
-    end)
-  end
-
-  if not changed then
-    return
-  end
-
-  vim.schedule(function()
-    vim.api.nvim_exec_autocmds("User", {
-      pattern = "OpencodeSessionChanged",
-      data = {
-        route = state.route,
-        session_id = state.session_id,
-        instance_id = state.instance_id,
-        cwd = state.cwd,
-      },
-    })
-  end)
+  session.update_active({
+    route = payload.route,
+    session_id = payload.sessionID,
+    cwd = payload.cwd,
+    instance_id = state.instance_id,
+  })
 end
 
----@param payload table<string, any>
+---Forward a selected embedded-TUI event into Neovim `User` autocmds.
+---
+---These become `OpencodeActiveEvent:<type>` events scoped to the local embedded
+---TUI, distinct from backend SSE events emitted by `opencode.client`.
+---@param payload opencode.BridgePayload
 local function emit_active_event(payload)
   local event = payload.event
   if type(event) ~= "table" or type(event.type) ~= "string" or event.type == "" then
     return
   end
 
+  local current = session.get_state()
   local route = payload.route == "session" and "session" or "home"
   local session_id = type(payload.sessionID) == "string" and payload.sessionID ~= "" and payload.sessionID or nil
-  local cwd = payload.cwd or state.cwd
+  local cwd = payload.cwd or current.cwd
 
   vim.schedule(function()
     vim.api.nvim_exec_autocmds("User", {
@@ -191,6 +231,7 @@ local function emit_active_event(payload)
   end)
 end
 
+---Validate and dispatch one complete bridge request.
 ---@param request string
 ---@return integer, string
 local function handle_request(request)
@@ -229,8 +270,16 @@ local function handle_request(request)
   return 200, '{"ok":true}'
 end
 
+---Try to extract one complete HTTP request from the accumulated TCP buffer.
+---
+---The embedded TUI runtime may send:
+---1. a normal `Content-Length` request
+---2. a chunked request body
+---3. a simple body we can validate as raw JSON once headers are present
 ---@param buffer string
----@return integer|nil, integer|nil, string|nil
+---@return integer|nil body_start
+---@return integer|nil content_length
+---@return string|nil request
 local function parse_request(buffer)
   local header_end, delimiter_length = buffer:find("\r\n\r\n", 1, true), 4
   if not header_end then
@@ -266,6 +315,7 @@ local function parse_request(buffer)
   return nil, nil, nil
 end
 
+---Stop the loopback bridge server.
 local function stop_server()
   if state.server then
     state.server:close()
@@ -273,6 +323,7 @@ local function stop_server()
   state.server = nil
 end
 
+---Register one shutdown autocmd for bridge cleanup.
 local function ensure_autocmd()
   if autocmd_registered then
     return
@@ -284,11 +335,17 @@ local function ensure_autocmd()
   })
 end
 
+---Generate a process-local identifier for bridge auth/state correlation.
 ---@return string
 local function generate_id()
   return tostring(vim.fn.getpid()) .. "-" .. tostring(vim.uv.hrtime())
 end
 
+---Ensure the local bridge server exists and return env vars for the child TUI.
+---
+---`opencode.terminal` injects these values into the `opencode attach` process.
+---The bundled TUI plugin reads them and POSTs state/event payloads back to this
+---bridge server.
 ---@return table<string, string>
 function M.ensure()
   if state.server and state.url and state.token and state.instance_id then
@@ -345,10 +402,12 @@ function M.ensure()
   end)
 
   local socket = server:getsockname()
+  local port = socket and socket.port or nil
+  assert(port, "Failed to determine OpenCode bridge port")
   state.server = server
   state.token = generate_id()
   state.instance_id = generate_id()
-  state.url = "http://127.0.0.1:" .. tostring(socket.port) .. BRIDGE_PATH
+  state.url = "http://127.0.0.1:" .. tostring(port) .. BRIDGE_PATH
 
   ensure_autocmd()
 
@@ -359,15 +418,13 @@ function M.ensure()
   }
 end
 
----@return { url: string|nil, route: string, session_id: string|nil, instance_id: string|nil, cwd: string|nil }
-function M.get_state()
-  return {
-    url = state.url,
-    route = state.route,
-    session_id = state.session_id,
-    instance_id = state.instance_id,
-    cwd = state.cwd,
-  }
+---Return the local bridge URL for diagnostics and status reporting.
+---
+---This is the loopback endpoint consumed by the embedded TUI plugin, not the
+---OpenCode backend server URL configured in `opencode.config`.
+---@return string|nil
+function M.get_url()
+  return state.url
 end
 
 return M

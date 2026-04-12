@@ -1,4 +1,8 @@
----Shared utilities for opencode.nvim.
+---Shared low-level utilities for opencode.nvim.
+---
+---Keep this module limited to generic Neovim/runtime helpers whose contracts
+---are not tied to a specific opencode feature area. Helpers that primarily
+---exist to support one domain flow should stay local to their owning module.
 local M = {}
 
 ---Errors if a system call returned a non-zero exit code or no output.
