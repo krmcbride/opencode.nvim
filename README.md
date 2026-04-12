@@ -111,7 +111,7 @@ require("opencode").prompt("Explain this", { clear = true, submit = true })
 |:------------|:-----------|:------------|
 | `@this` | `@file.lua#21`, `@file.lua#21-30`, or `columns 8-15 in @file.lua#21` | Current line, line range, or single-line char selection (columns as text; `@…#` last for TUI autocomplete) |
 | `@buffer` | `@file.lua` | Current buffer path |
-| `@diagnostics` | (formatted list) | LSP diagnostics for current buffer |
+| `@diagnostics` | Prompt text with a formatted diagnostic list and trailing `@file` ref | LSP diagnostics for current buffer |
 
 > **Tip:** A trailing space (e.g., `@this `) dismisses opencode's file picker popup, which otherwise clears the line number from the reference.
 
