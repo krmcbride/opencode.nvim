@@ -11,6 +11,7 @@ local state = {
   instance_id = nil,
   route = "home",
   session_id = nil,
+  cwd = nil,
 }
 
 ---@param target string
@@ -132,6 +133,7 @@ end
 local function update_state(payload)
   state.route = payload.route == "session" and "session" or "home"
   state.session_id = state.route == "session" and payload.sessionID or nil
+  state.cwd = payload.cwd or state.cwd
 
   vim.schedule(function()
     vim.api.nvim_exec_autocmds("User", {
@@ -303,13 +305,14 @@ function M.ensure()
   }
 end
 
----@return { url: string|nil, route: string, session_id: string|nil, instance_id: string|nil }
+---@return { url: string|nil, route: string, session_id: string|nil, instance_id: string|nil, cwd: string|nil }
 function M.get_state()
   return {
     url = state.url,
     route = state.route,
     session_id = state.session_id,
     instance_id = state.instance_id,
+    cwd = state.cwd,
   }
 end
 

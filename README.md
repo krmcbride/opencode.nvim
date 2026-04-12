@@ -8,6 +8,7 @@ A simple Neovim plugin for [opencode](https://github.com/anomalyco/opencode) int
 - Bridge the active attached TUI session back into Neovim
 - Snacks terminal integration for toggling opencode
 - Send prompts with context expansion (`@this`, `@buffer`, `@diagnostics`)
+- Send direct review comments for the current line or visual range to the active session
 - Execute TUI commands (session management, scrolling, etc.)
 - Auto-reload buffers when opencode edits files
 
@@ -45,6 +46,8 @@ A simple Neovim plugin for [opencode](https://github.com/anomalyco/opencode) int
     { "<leader>aa", function() require("opencode").prompt("@this ", { focus = true }) end, mode = { "n", "x" }, desc = "Add to prompt" },
     { "<leader>ab", function() require("opencode").prompt("@buffer", { focus = true }) end, desc = "Add buffer to prompt" },
     { "<leader>ad", function() require("opencode").prompt("@diagnostics", { focus = true }) end, desc = "Add diagnostics to prompt" },
+    { "<leader>av", function() require("opencode").review_selection() end, mode = "n", desc = "Review line" },
+    { "<leader>av", function() require("opencode").review_visual_selection() end, mode = "x", desc = "Review selection" },
   },
 }
 ```
@@ -149,6 +152,30 @@ require("opencode").prompt("Explain this", { clear = true, submit = true })
 | `@diagnostics` | Prompt text with a formatted diagnostic list and trailing `@file` ref | LSP diagnostics for current buffer |
 
 > **Tip:** A trailing space (e.g., `@this `) dismisses opencode's file picker popup, which otherwise clears the line number from the reference.
+
+### Reviews
+
+```lua
+-- Review the current line in the active attached TUI session.
+require("opencode").review_selection()
+
+-- Review the current visual range in the active attached TUI session.
+require("opencode").review_visual_selection()
+```
+
+Reviews are sent directly through `POST /session/<sessionID>/prompt_async` using:
+
+- one text part for your comment
+- one ranged file attachment using `file://...?...start=&end=`
+
+The review popup is a small cursor-anchored editor float:
+
+- `Ctrl-S` submits in normal or insert mode
+- `Ctrl-C` cancels in insert mode
+- `q` cancels in normal mode
+- `Enter` inserts a newline
+
+Direct review sends reuse the last persisted user message's `agent`, `model`, and `variant` when available, so they generally match the active session's existing model choice without requiring OpenCode core changes.
 
 ### Commands
 

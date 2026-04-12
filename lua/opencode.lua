@@ -116,6 +116,122 @@ function M.prompt(prompt, opts)
   end)
 end
 
+---@param selection { path: string, start_line: integer, end_line: integer }
+local function review_with_selection(selection)
+  local filename = vim.fn.fnamemodify(selection.path, ":t")
+  local title
+  if selection.start_line == selection.end_line then
+    title = "Review " .. filename .. " line " .. tostring(selection.start_line)
+  else
+    title = "Review " .. filename .. " lines " .. tostring(selection.start_line) .. "-" .. tostring(selection.end_line)
+  end
+
+  require("opencode.input").review({
+    prompt = "Review message: ",
+    title = title,
+  }, function(input)
+    if input == nil then
+      return
+    end
+
+    local message = vim.trim(input)
+    if message == "" then
+      vim.notify("Review message is required", vim.log.levels.WARN, { title = "opencode" })
+      return
+    end
+
+    local bridge = require("opencode.bridge").get_state()
+    if bridge.route ~= "session" or not bridge.session_id then
+      vim.notify(
+        "No active OpenCode session selected in the embedded TUI",
+        vim.log.levels.ERROR,
+        { title = "opencode" }
+      )
+      return
+    end
+
+    require("opencode.server").get_url(function(url_err, url)
+      if url_err or not url then
+        vim.notify(url_err or "OpenCode backend unavailable", vim.log.levels.ERROR, { title = "opencode" })
+        return
+      end
+
+      local range = require("opencode.range")
+      local parts = {
+        {
+          type = "text",
+          text = message,
+        },
+        {
+          type = "file",
+          mime = "text/plain",
+          filename = range.display_name(selection.path, selection.start_line, selection.end_line),
+          url = range.file_url(selection.path, selection.start_line, selection.end_line),
+        },
+      }
+
+      local function send(prompt_opts)
+        require("opencode.client").prompt_async(url, bridge.session_id, parts, prompt_opts, function(err)
+          if err then
+            vim.notify(err, vim.log.levels.ERROR, { title = "opencode" })
+            return
+          end
+
+          vim.notify("Sent review to active OpenCode session", vim.log.levels.INFO, { title = "opencode" })
+          require("opencode.client").ensure_subscribed(true)
+        end)
+      end
+
+      require("opencode.client").session_messages(url, bridge.session_id, { directory = bridge.cwd, limit = 100 }, function(err, response)
+        if err or type(response) ~= "table" then
+          send({ directory = bridge.cwd })
+          return
+        end
+
+        local last_user = nil
+        for i = #response, 1, -1 do
+          local item = response[i]
+          if type(item) == "table" and type(item.info) == "table" and item.info.role == "user" then
+            last_user = item.info
+            break
+          end
+        end
+
+        send({
+          directory = bridge.cwd,
+          agent = last_user and last_user.agent or nil,
+          model = last_user and last_user.model or nil,
+          variant = last_user and last_user.variant or nil,
+        })
+      end)
+    end)
+  end)
+end
+
+---Prompt for a review message and send the current line or active visual
+---selection directly to the active session as a ranged file attachment.
+function M.review_selection()
+  local selection, selection_err = require("opencode.range").current_selection_or_line()
+  if selection_err or not selection then
+    vim.notify(selection_err or "No file selection available", vim.log.levels.ERROR, { title = "opencode" })
+    return
+  end
+
+  review_with_selection(selection)
+end
+
+---Prompt for a review message and send the persisted visual marks as a ranged
+---file attachment. Prefer this for explicit visual-mode mappings.
+function M.review_visual_selection()
+  local selection, selection_err = require("opencode.range").visual_selection()
+  if selection_err or not selection then
+    vim.notify(selection_err or "No visual selection available", vim.log.levels.ERROR, { title = "opencode" })
+    return
+  end
+
+  review_with_selection(selection)
+end
+
 ---@alias opencode.Command
 ---| 'session.list'
 ---| 'session.new'
