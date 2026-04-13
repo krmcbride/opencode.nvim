@@ -1,0 +1,7 @@
+{
+  "name": "opencode-nvim-bridge",
+  "type": "module",
+  "exports": {
+    "./tui": "./tui.ts"
+  }
+}

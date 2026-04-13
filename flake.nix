@@ -20,6 +20,11 @@
       {
         devShells.default = pkgs.mkShell {
           name = "opencode-nvim";
+
+          packages = with pkgs; [
+            stylua
+            typescript
+          ];
         };
       }
     );

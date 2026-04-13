@@ -1,33 +1,18 @@
 ---Terminal management for opencode via snacks.nvim.
 ---
----Provides toggle/start/stop for the opencode TUI running in a snacks terminal.
----
----Shutdown uses the API: POST /tui/publish with "app.exit" command, which
----triggers opencode's clean exit path with process.exit(0) - the same code
----path as pressing Ctrl+C in the TUI.
+---Provides toggle/start/stop for a local opencode TUI client running in a
+---snacks terminal. The client attaches to a configured backend server.
 local M = {}
+local warned_username = false
 
--- Track the port for API calls
-local tracked_port = nil
-
--- Snacks terminal docs:
--- https://github.com/folke/snacks.nvim/blob/main/docs/terminal.md
--- https://github.com/folke/snacks.nvim/blob/main/docs/win.md
 local DEFAULT_SNACKS_OPTS = {
-  -- Close the terminal window when opencode exits successfully.
   auto_close = true,
-  -- Always enter insert mode when the terminal opens.
   start_insert = true,
-  -- Re-enter insert mode whenever this terminal regains focus.
   auto_insert = true,
   win = {
-    -- Keep opencode in a right-side split.
     position = "right",
-    -- Do not steal focus unless the caller explicitly requests focus.
     enter = false,
-    -- Hide split winbar for a cleaner terminal pane.
     wo = { winbar = "" },
-    -- Mark this terminal buffer so users can target it with ft-based config.
     bo = { filetype = "opencode_terminal" },
   },
 }
@@ -53,20 +38,75 @@ local function normalize_env(env)
   return normalized
 end
 
+---@param text string
+---@return string
+local function quote(text)
+  return '"' .. text:gsub("\\", "\\\\"):gsub('"', '\\"') .. '"'
+end
+
+---@return table<string, string>|nil
+local function get_env()
+  local config = require("opencode.config")
+  local terminal = config.opts.terminal or {}
+  local env = vim.deepcopy(terminal.env or {})
+  local auth = config.get_auth()
+  local bridge = require("opencode.bridge").ensure()
+
+  if auth then
+    env.OPENCODE_SERVER_PASSWORD = auth.password
+  end
+
+  for key, value in pairs(bridge) do
+    env[key] = value
+  end
+
+  return normalize_env(env)
+end
+
+---@return string
+local function get_cmd()
+  local config = require("opencode.config")
+  local terminal = config.opts.terminal or {}
+  if terminal.cmd then
+    return terminal.cmd
+  end
+
+  local auth = config.get_auth()
+  if auth and auth.username ~= "opencode" then
+    if not warned_username then
+      warned_username = true
+      vim.schedule(function()
+        vim.notify(
+          "Generated attach mode currently expects backend username `opencode`",
+          vim.log.levels.WARN,
+          { title = "opencode" }
+        )
+      end)
+    end
+  end
+
+  local cmd = {
+    "opencode attach",
+    quote(config.get_url()),
+    "--dir",
+    quote(terminal.dir or "."),
+  }
+  if terminal["continue"] ~= false then
+    table.insert(cmd, "--continue")
+  end
+  return table.concat(cmd, " ")
+end
+
 local function get_opts()
   local config = require("opencode.config").opts.terminal or {}
-  local cmd = config.cmd or "opencode --port"
   local snacks_opts = vim.deepcopy(DEFAULT_SNACKS_OPTS)
 
   snacks_opts.win.width = config.width
+  snacks_opts.env = get_env()
 
-  -- Environment variables for opencode are configured via terminal.env.
-  snacks_opts.env = normalize_env(config.env)
-
-  return cmd, snacks_opts
+  return get_cmd(), snacks_opts
 end
 
----Get the existing terminal window (if any).
 ---@return snacks.win|nil
 function M.get()
   local cmd, snacks_opts = get_opts()
@@ -74,28 +114,132 @@ function M.get()
   return require("snacks.terminal").get(cmd, opts)
 end
 
----Try to discover and cache the server port.
----@return number|nil
-local function get_port()
-  if tracked_port then
-    return tracked_port
+---@return integer|nil
+local function get_buf()
+  local terminal = M.get()
+  if not terminal then
+    return nil
   end
-  -- Try to discover port from SSE connection state first (already connected)
-  local client_status = require("opencode.client").get_status()
-  if client_status.port then
-    tracked_port = client_status.port
-    return tracked_port
+
+  if terminal.buf and vim.api.nvim_buf_is_valid(terminal.buf) then
+    return terminal.buf
   end
+
+  if terminal.win and vim.api.nvim_win_is_valid(terminal.win) then
+    return vim.api.nvim_win_get_buf(terminal.win)
+  end
+
   return nil
 end
 
----Toggle the opencode terminal.
+---@return integer|nil
+local function get_job()
+  local buf = get_buf()
+  if not buf then
+    return nil
+  end
+
+  local job = vim.b[buf] and vim.b[buf].terminal_job_id
+  if job and job > 0 then
+    return job
+  end
+
+  return nil
+end
+
+---@param callback fun(err: string|nil, job: integer|nil)
+local function wait_job(callback)
+  local job = get_job()
+  if job then
+    callback(nil, job)
+    return
+  end
+
+  local retries = 0
+  local timer = vim.uv.new_timer()
+  if not timer then
+    callback("Failed to create timer for terminal startup", nil)
+    return
+  end
+
+  local closed = false
+  timer:start(
+    25,
+    25,
+    vim.schedule_wrap(function()
+      if closed then
+        return
+      end
+
+      local next = get_job()
+      if next then
+        closed = true
+        timer:stop()
+        timer:close()
+        callback(nil, next)
+        return
+      end
+
+      retries = retries + 1
+      if retries < 80 then
+        return
+      end
+
+      closed = true
+      timer:stop()
+      timer:close()
+      callback("Timed out waiting for opencode terminal", nil)
+    end)
+  )
+end
+
+---@param text string
+---@param callback? fun(err: string|nil)
+function M.send(text, callback)
+  if not M.get() then
+    M.start()
+  end
+
+  wait_job(function(err, job)
+    if err or not job then
+      if callback then
+        callback(err or "No opencode terminal job found")
+      end
+      return
+    end
+
+    vim.api.nvim_chan_send(job, text)
+    if callback then
+      callback(nil)
+    end
+  end)
+end
+
+---@param command string
+---@param callback? fun(err: string|nil, handled: boolean|nil)
+function M.command(command, callback)
+  local keys = (require("opencode.config").opts.terminal or {}).keys or {}
+
+  local value = keys[command]
+  if not value then
+    if callback then
+      callback(nil, false)
+    end
+    return
+  end
+
+  M.send(value, function(err)
+    if callback then
+      callback(err, err == nil)
+    end
+  end)
+end
+
 function M.toggle()
   local cmd, snacks_opts = get_opts()
   require("snacks.terminal").toggle(cmd, snacks_opts)
 end
 
----Start the opencode terminal if not already running.
 function M.start()
   if not M.get() then
     local cmd, snacks_opts = get_opts()
@@ -103,18 +247,16 @@ function M.start()
   end
 end
 
----Stop the opencode terminal.
 function M.stop()
-  local port = get_port()
-  local win = M.get()
+  local job = get_job()
+  local terminal = M.get()
 
-  if port then
-    require("opencode.client").exit(port)
-    tracked_port = nil
+  if job then
+    vim.fn.jobstop(job)
   end
 
-  if win then
-    win:close()
+  if terminal then
+    terminal:close()
   end
 end
 

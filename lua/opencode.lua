@@ -7,7 +7,7 @@ local M = {}
 ---Move the TUI input cursor to end-of-line by sending Ctrl-E on the PTY.
 ---
 ---OpenCode's `@` file picker opens when the cursor is at the end of an `@path`
----fragment. Neovim config often injects that text via HTTP append; we then need
+---fragment. Neovim config often injects that text into the local terminal; we then need
 ---the cursor *on* the end of the fragment (not Normal mode over the split, and
 ---not after a translated `<End>`), so the TUI can treat it like a native `@`
 ---completion.
@@ -41,7 +41,7 @@ local function focus_terminal(opts)
     end
 
     if opts.cursor_end then
-      -- Give the HTTP-appended prompt time to show in the TUI before moving the cursor.
+      -- Give the injected prompt time to show in the TUI before moving the cursor.
       vim.defer_fn(function()
         if not vim.api.nvim_win_is_valid(terminal.win) then
           return
@@ -97,38 +97,22 @@ function M.prompt(prompt, opts)
   opts = opts or {}
   local context = opts.context or require("opencode.context").new()
   local expanded = context:expand(prompt)
+  local text = (opts.clear and "\005\021" or "") .. expanded .. (opts.submit and "\r" or "")
 
-  require("opencode.server").get_port(function(err, port)
-    if err or not port then
-      if err then
-        vim.notify(err, vim.log.levels.ERROR, { title = "opencode" })
-      end
+  require("opencode.terminal").send(text, function(err)
+    if err then
+      vim.notify(err, vim.log.levels.ERROR, { title = "opencode" })
       context:clear()
       return
     end
 
-    local function do_append()
-      require("opencode.client").append_prompt(port, expanded, function()
-        -- Subscribe to SSE for file reload events
-        require("opencode.client").ensure_subscribed()
+    require("opencode.client").ensure_subscribed(true)
 
-        if opts.submit then
-          require("opencode.client").execute_command(port, "prompt.submit")
-        end
-
-        if opts.focus then
-          focus_terminal({ cursor_end = true })
-        end
-
-        context:clear()
-      end)
+    if opts.focus then
+      focus_terminal({ cursor_end = not opts.submit })
     end
 
-    if opts.clear then
-      require("opencode.client").execute_command(port, "prompt.clear", do_append)
-    else
-      do_append()
-    end
+    context:clear()
   end)
 end
 
@@ -153,14 +137,31 @@ end
 ---Execute a TUI command.
 ---@param command opencode.Command|string
 function M.command(command)
-  require("opencode.server").get_port(function(err, port)
-    if err or not port then
-      if err then
-        vim.notify(err, vim.log.levels.ERROR, { title = "opencode" })
-      end
+  require("opencode.terminal").command(command, function(err, handled)
+    if err then
+      vim.notify(err, vim.log.levels.ERROR, { title = "opencode" })
       return
     end
-    require("opencode.client").execute_command(port, command)
+
+    if handled then
+      return
+    end
+
+    require("opencode.server").get_url(function(url_err, url)
+      if url_err or not url then
+        if url_err then
+          vim.notify(url_err, vim.log.levels.ERROR, { title = "opencode" })
+        end
+        return
+      end
+
+      vim.notify(
+        "Broadcasting TUI command through shared backend: " .. command,
+        vim.log.levels.WARN,
+        { title = "opencode" }
+      )
+      require("opencode.client").execute_command(url, command)
+    end)
   end)
 end
 
@@ -168,14 +169,20 @@ end
 function M.status()
   local terminal = require("opencode.terminal").get()
   local sse = require("opencode.client").get_status()
+  local bridge = require("opencode.bridge").get_state()
 
   local lines = {}
   table.insert(lines, "Terminal: " .. (terminal and "running" or "not running"))
   if sse.connected then
-    table.insert(lines, "SSE: connected on port " .. sse.port)
+    table.insert(lines, "SSE: connected to " .. sse.url)
   else
     table.insert(lines, "SSE: not connected")
   end
+
+  table.insert(lines, "Backend: " .. require("opencode.config").get_url())
+  table.insert(lines, "Bridge: " .. (bridge.url or "not started"))
+  table.insert(lines, "Route: " .. bridge.route)
+  table.insert(lines, "Session: " .. (bridge.session_id or "none"))
 
   vim.notify(table.concat(lines, "\n"), vim.log.levels.INFO, { title = "opencode" })
 end
