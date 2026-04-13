@@ -84,9 +84,12 @@ end
 ---Build the environment for the embedded attach-mode process.
 ---
 ---This merges three sources:
----1. user-provided `terminal.env`
+---1. user-provided `terminal.env` for the child `opencode attach` process
 ---2. backend auth env inherited from Neovim config
 ---3. bridge env so the TUI can report active-session state back to Neovim
+---
+---This is not a general backend-daemon configuration surface. Server-side
+---feature flags still need to be configured on the backend process itself.
 ---@return table<string, string>|nil
 local function get_env()
   local terminal = config.opts.terminal or {}

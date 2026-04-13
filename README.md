@@ -10,6 +10,7 @@ A Neovim plugin for running a local [opencode](https://github.com/anomalyco/open
 - Send prompts with context expansion (`@this`, `@buffer`, `@diagnostics`)
 - Send direct review comments for the current line or visual range to the active session
 - Auto-reload buffers when OpenCode edits files
+- Expose `User` autocmds for notifications, statusline/tmux hooks, and other local integrations
 
 ## Setup
 
@@ -28,9 +29,8 @@ A Neovim plugin for running a local [opencode](https://github.com/anomalyco/open
     terminal = {
       width = 0.43,
       env = {
-        -- Example feature flags
-        OPENCODE_EXPERIMENT_A = 1,
-        OPENCODE_EXPERIMENT_B = "enabled",
+        -- Extra environment for the child `opencode attach` process
+        SOME_CHILD_PROCESS_FLAG = "1",
       },
     },
   },
@@ -40,7 +40,7 @@ A Neovim plugin for running a local [opencode](https://github.com/anomalyco/open
   end,
   keys = {
     { "<leader>ac", function() require("opencode").toggle({ focus = true }) end, mode = { "n", "t" }, desc = "Toggle opencode" },
-    { "<leader>aa", function() require("opencode").prompt("@this ", { focus = true }) end, mode = { "n", "x" }, desc = "Add to prompt" },
+    { "<leader>aa", function() require("opencode").prompt("@this", { focus = true }) end, mode = { "n", "x" }, desc = "Add to prompt" },
     { "<leader>ab", function() require("opencode").prompt("@buffer", { focus = true }) end, desc = "Add buffer to prompt" },
     { "<leader>ad", function() require("opencode").prompt("@diagnostics", { focus = true }) end, desc = "Add diagnostics to prompt" },
     { "<leader>as", function() require("opencode").attach_session_prompt() end, desc = "Attach session ID" },
@@ -72,13 +72,11 @@ require("opencode").setup({
 })
 ```
 
-> **Environment variables:** Set OpenCode feature flags in `opts.terminal.env`.
+> **`terminal.env` note:** `opts.terminal.env` is only passed to the child `opencode attach` process. Backend/server feature flags usually need to be configured on the backend server process itself, not here.
 > **Auto-reload note:** `auto_reload = true` still depends on Neovim `autoread`; set `vim.o.autoread = true` in your config. External non-OpenCode edits only surface through `OpencodeEvent:file.watcher.updated` when the backend server file watcher is enabled.
 > **Auth note:** backend auth is read from Neovim's `OPENCODE_SERVER_PASSWORD` and optional `OPENCODE_SERVER_USERNAME` environment variables. If you source credentials from a file or secret manager, populate `vim.env` before calling `require("opencode").setup(...)`.
 > **Width:** Set terminal width with `opts.terminal.width`.
 > Other terminal behavior uses plugin defaults.
-
-> **Note:** The trailing space in `@this ` dismisses opencode's file picker, preserving the line number in the reference.
 
 ### OpenCode TUI Plugin
 
@@ -106,19 +104,19 @@ require("opencode").start()                  -- Start opencode if not running
 require("opencode").start({ focus = true })  -- Start and focus the terminal
 require("opencode").attach_session("ses_...") -- Attach directly to a specific session id
 require("opencode").attach_session_prompt()   -- Prompt for a session id, then attach
-require("opencode").status()                 -- Show terminal and SSE connection status
+require("opencode").status()                 -- Show terminal, backend, bridge, and SSE status
 ```
 
 ### Prompts
 
 ```lua
 -- Add context to the prompt (build up context, then submit in TUI)
-require("opencode").prompt("@this ")        -- Current line or selection
+require("opencode").prompt("@this")         -- Current line or selection
 require("opencode").prompt("@buffer")       -- Current file
 require("opencode").prompt("@diagnostics")  -- LSP diagnostics
 
 -- Focus the terminal after adding context
-require("opencode").prompt("@this ", { focus = true })
+require("opencode").prompt("@this", { focus = true })
 
 -- Or submit immediately
 require("opencode").prompt("Fix @diagnostics", { submit = true })
@@ -147,7 +145,7 @@ They only work when prompt text flows through `opencode.nvim` APIs like `require
 | `@buffer` | `@file.lua` | Current buffer path |
 | `@diagnostics` | Prompt text with a formatted diagnostic list and trailing `@file` ref | LSP diagnostics for current buffer |
 
-> **Tip:** A trailing space (e.g., `@this `) dismisses opencode's file picker popup, which otherwise clears the line number from the reference.
+> **Tip:** `@this` expands to a native OpenCode file reference like `@file.lua#21` or `@file.lua#21-30`. With `focus = true`, `opencode.nvim` leaves the TUI cursor at end-of-line so the attached TUI can continue native `@` completion from that ref. Add a trailing space only if you explicitly want to dismiss the picker; the space is sent literally.
 
 ### Reviews
 
@@ -183,7 +181,19 @@ Direct review sends reuse the last persisted user message's `agent`, `model`, an
 
 ## Events
 
-opencode.nvim forwards SSE events as autocmds:
+`opencode.nvim` exposes three useful integration surfaces:
+
+- `OpencodeEvent:*` for backend SSE events in the currently subscribed backend directory
+- `OpencodeActiveEvent:*` for local embedded-TUI events scoped to the currently attached session
+- `OpencodeSessionChanged` for coarse route/session/cwd changes reported by the embedded TUI
+
+That gives you enough surface to build your own notifications, tmux/workmux or window-status hooks, statusline components, per-session UI state, or any other local automation without hard-coding those integrations into the plugin.
+
+Register these from your normal Neovim config with `vim.api.nvim_create_autocmd("User", ...)` after loading the plugin.
+
+### `OpencodeEvent:*`
+
+`OpencodeEvent:*` comes from the backend SSE stream. This is the right surface for backend file/edit lifecycle events and server connection state.
 
 ```lua
 vim.api.nvim_create_autocmd("User", {
@@ -197,8 +207,20 @@ vim.api.nvim_create_autocmd("User", {
 })
 ```
 
-When the bundled TUI bridge plugin is installed, `opencode.nvim` also forwards the
-active embedded session's local OpenCode events as autocmds:
+For `OpencodeEvent:*`, `args.data` includes:
+
+- `event`: the backend SSE event object
+- `url`: the backend base URL that produced the event
+
+### `OpencodeActiveEvent:*`
+
+When the bundled TUI bridge plugin is installed, `opencode.nvim` also forwards the active embedded session's local OpenCode events as autocmds.
+
+This is the most useful surface for integrations that care about the embedded TUI the user is actually looking at, for example:
+
+- desktop notifications when the active session goes idle or errors
+- tmux/workmux or window-title status updates while the agent is busy or waiting on a question/permission prompt
+- local UI reactions to `question.asked` / `permission.asked` without watching every backend event globally
 
 ```lua
 vim.api.nvim_create_autocmd("User", {
@@ -212,14 +234,50 @@ vim.api.nvim_create_autocmd("User", {
 })
 ```
 
-`OpencodeEvent:*` comes from the server SSE stream for the currently subscribed backend directory.
-`OpencodeActiveEvent:*` comes from the embedded TUI bridge plugin and is scoped to the currently attached session, which makes it suitable for local integrations like statusline or tmux hooks.
+`OpencodeActiveEvent:*` comes from the embedded TUI bridge plugin and is scoped to the currently attached session, which makes it suitable for local integrations like notifications, statusline widgets, or tmux/workmux hooks.
+
+Currently forwarded event types:
+
+- `session.status`
+- `session.idle`
+- `session.error`
+- `permission.asked`
+- `permission.replied`
+- `question.asked`
+- `question.replied`
 
 For `OpencodeActiveEvent:*`, `args.data` includes:
 
 - `event`: the forwarded OpenCode event object
 - `route`: the local TUI route when the event was observed
 - `session_id`: the local attached session id when available
+- `instance_id`: the Neovim bridge instance id
+- `cwd`: the TUI working directory snapshot
+
+### `OpencodeSessionChanged`
+
+`OpencodeSessionChanged` fires when the local bridge reports that the active embedded TUI route, session id, or cwd changed.
+
+This is the right surface for integrations that want coarse session-aware state rather than every individual lifecycle event, for example:
+
+- updating a statusline or winbar with the current attached session id
+- mirroring the active OpenCode cwd into tmux/window metadata
+- maintaining per-session caches keyed by `(instance_id, session_id)`
+
+```lua
+vim.api.nvim_create_autocmd("User", {
+  pattern = "OpencodeSessionChanged",
+  callback = function(args)
+    local data = args.data
+    vim.notify(("route=%s session=%s cwd=%s"):format(data.route, data.session_id or "none", data.cwd or "none"))
+  end,
+})
+```
+
+For `OpencodeSessionChanged`, `args.data` includes:
+
+- `route`: the local TUI route when the event was observed
+- `session_id`: the active embedded OpenCode session id when available
 - `instance_id`: the Neovim bridge instance id
 - `cwd`: the TUI working directory snapshot
 
