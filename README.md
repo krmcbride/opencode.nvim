@@ -2,6 +2,8 @@
 
 A Neovim plugin for running a local [opencode](https://github.com/anomalyco/opencode) attach-mode TUI inside a [snacks.nvim](https://github.com/folke/snacks.nvim) terminal, with Neovim-side session bridging and local integrations.
 
+![opencode.nvim showing the attach-mode UI inside Snacks terminal](assets/screenshot.png)
+
 ## Features
 
 - Launch a local `opencode attach` TUI against a configured backend server
