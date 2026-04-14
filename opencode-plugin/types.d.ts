@@ -54,7 +54,21 @@ declare module "@opencode-ai/plugin/tui" {
     };
   };
 
-  export type TuiEvent = SessionEvent | PermissionEvent | QuestionEvent;
+  type MessageEvent = {
+    type: "message.updated";
+    properties?: {
+      sessionID?: unknown;
+      info?: {
+        role?: unknown;
+      };
+    };
+  };
+
+  export type TuiEvent =
+    | SessionEvent
+    | PermissionEvent
+    | QuestionEvent
+    | MessageEvent;
 
   export type TuiPluginApi = {
     route: {

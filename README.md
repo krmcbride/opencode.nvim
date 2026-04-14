@@ -243,6 +243,7 @@ Currently forwarded event types:
 - `session.status`
 - `session.idle`
 - `session.error`
+- `message.updated`
 - `permission.asked`
 - `permission.replied`
 - `question.asked`
