@@ -79,16 +79,29 @@ vim.api.nvim_create_autocmd("VimLeavePre", {
   desc = "Stop opencode terminal on exit",
 })
 
--- Close the SSE subscription when the opencode terminal job exits.
+-- Reconcile the SSE subscription when an embedded opencode terminal exits.
+--
+-- During cross-tab reattach we intentionally stop the old terminal and start a
+-- new attach process immediately. In that case we want the backend SSE stream to
+-- remain aligned with the surviving embedded terminal instead of always forcing a
+-- disconnect.
 vim.api.nvim_create_autocmd("TermClose", {
   group = augroup,
   ---@param ev vim.api.keyset.create_autocmd.callback_args
   callback = function(ev)
     if vim.bo[ev.buf].filetype == TERMINAL_FILETYPE then
-      require("opencode.client").sse_unsubscribe()
+      vim.schedule(function()
+        local terminal = require("opencode.terminal")
+        local client = require("opencode.client")
+        if terminal.is_open() then
+          client.ensure_subscribed()
+        else
+          client.sse_unsubscribe()
+        end
+      end)
     end
   end,
-  desc = "Clean up SSE connection when opencode terminal exits",
+  desc = "Reconcile opencode SSE after terminal close",
 })
 
 -- Re-enter Terminal mode when the opencode pane regains focus (e.g. closing a
@@ -100,7 +113,7 @@ vim.api.nvim_create_autocmd("TermClose", {
 -- not already `t`. That covers WinEnter-only focus changes snacks does not
 -- register, and deferred re-entry when an immediate `startinsert` does not
 -- stick (overlays / focus-order quirks). If snacks already left us in `t`, we
--- no-op.
+-- no-op. Also re-sync the PTY viewport to the window size after tab/split moves.
 vim.api.nvim_create_autocmd({ "BufEnter", "WinEnter" }, {
   group = augroup,
   ---@param ev vim.api.keyset.create_autocmd.callback_args
@@ -115,6 +128,7 @@ vim.api.nvim_create_autocmd({ "BufEnter", "WinEnter" }, {
       if vim.api.nvim_get_current_buf() ~= ev.buf then
         return
       end
+      require("opencode.terminal").sync_size()
       if vim.api.nvim_get_mode().mode ~= "t" then
         vim.cmd.startinsert()
       end

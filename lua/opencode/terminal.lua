@@ -22,6 +22,69 @@ local state = {
   terminal = nil,
 }
 
+---@type table<integer, boolean>
+local expected_exit = {}
+
+---Check whether a terminal window is visible in the current tabpage.
+---@param terminal opencode.TerminalHandle|nil
+---@return boolean
+local function on_current_tab(terminal)
+  return terminal ~= nil
+    and terminal.win_valid
+    and terminal:win_valid()
+    and vim.api.nvim_win_get_tabpage(terminal.win) == vim.api.nvim_get_current_tabpage()
+end
+
+---Check whether a terminal window is currently visible in some other tabpage.
+---@param terminal opencode.TerminalHandle|nil
+---@return boolean
+local function on_other_tab(terminal)
+  return terminal ~= nil
+    and terminal.win_valid
+    and terminal:win_valid()
+    and vim.api.nvim_win_get_tabpage(terminal.win) ~= vim.api.nvim_get_current_tabpage()
+end
+
+---Resize an existing terminal PTY to match its visible window.
+---
+---When snacks hides and re-shows an existing terminal buffer, the PTY can keep a
+---stale viewport until it receives an explicit resize.
+---@param terminal opencode.TerminalHandle|nil
+local function sync_size(terminal)
+  if not (terminal and terminal.buf_valid and terminal:buf_valid()) then
+    return
+  end
+
+  vim.schedule(function()
+    if not (terminal.win_valid and terminal:win_valid()) then
+      return
+    end
+
+    local job = vim.b[terminal.buf] and vim.b[terminal.buf].terminal_job_id
+    if not (job and job > 0) then
+      return
+    end
+
+    local width = vim.api.nvim_win_get_width(terminal.win)
+    local height = vim.api.nvim_win_get_height(terminal.win)
+    if width > 0 and height > 0 then
+      pcall(vim.fn.jobresize, job, width, height)
+    end
+  end)
+end
+
+---Run a few staggered PTY resizes while the split settles.
+---@param terminal opencode.TerminalHandle|nil
+local function resync_size(terminal)
+  sync_size(terminal)
+  vim.defer_fn(function()
+    sync_size(terminal)
+  end, 40)
+  vim.defer_fn(function()
+    sync_size(terminal)
+  end, 120)
+end
+
 ---Return the attach target the local terminal should use right now.
 ---
 ---The terminal does not own attach-session coordination itself; it reads the
@@ -31,11 +94,65 @@ local function current_target()
   return { session_id = session.get_target_session_id() }
 end
 
+---Pick the best session target for a fresh attach process.
+---
+---Cross-tab renderer reuse appears unreliable. When we need a fresh process,
+---prefer the explicit attach target, otherwise fall back to the currently active
+---session reported by the bridge so reopening stays on the same conversation.
+---@return opencode.TerminalTarget
+local function restart_target()
+  local target = current_target()
+  if target.session_id and target.session_id ~= "" then
+    return target
+  end
+
+  local active = session.get_state()
+  if active.route == "session" and active.session_id and active.session_id ~= "" then
+    return { session_id = active.session_id }
+  end
+
+  return target
+end
+
+---Install opencode-specific exit handling for an embedded terminal buffer.
+---@param terminal opencode.TerminalHandle
+local function attach_close_handler(terminal)
+  local buf = terminal.buf
+  if not (buf and vim.api.nvim_buf_is_valid(buf)) then
+    return
+  end
+
+  expected_exit[buf] = nil
+  terminal:on("TermClose", function()
+    local status = type(vim.v.event) == "table" and tonumber(vim.v.event.status) or 0
+    local expected = expected_exit[buf] == true
+    expected_exit[buf] = nil
+
+    if state.terminal == terminal then
+      state.terminal = nil
+    end
+
+    if expected or status == 0 then
+      vim.schedule(function()
+        if terminal.buf_valid and terminal:buf_valid() then
+          terminal:close()
+        end
+        vim.cmd.checktime()
+      end)
+      return
+    end
+
+    vim.notify("Terminal exited with code " .. tostring(status) .. ".\nCheck for any errors.", vim.log.levels.ERROR, {
+      title = "opencode",
+    })
+  end, { buf = true })
+end
+
 ---Default snacks.nvim terminal options for the embedded opencode TUI.
 ---
 ---Per-launch values like width and environment are merged in later.
 local DEFAULT_SNACKS_OPTS = {
-  auto_close = true,
+  auto_close = false,
   start_insert = true,
   auto_insert = true,
   win = {
@@ -149,6 +266,44 @@ local function get_opts(target)
   snacks_opts.env = get_env()
 
   return get_cmd(target), snacks_opts
+end
+
+---@param target? opencode.TerminalTarget
+---@return opencode.TerminalHandle
+local function open_terminal(target)
+  local cmd, snacks_opts = get_opts(target or current_target())
+  state.terminal = require("snacks.terminal").open(cmd, snacks_opts)
+  attach_close_handler(state.terminal)
+  resync_size(state.terminal)
+  return state.terminal
+end
+
+---@param target? opencode.TerminalTarget
+---@return opencode.TerminalHandle
+local function restart_terminal(target)
+  M.stop()
+  return open_terminal(target or restart_target())
+end
+
+---Ensure the primary terminal is visible when it already belongs to this tab.
+---
+---Cross-tab handoff is handled by restarting the attach process; this helper is
+---only for the current tab's existing terminal window/buffer lifecycle.
+---@param terminal opencode.TerminalHandle
+---@return opencode.TerminalHandle
+local function reveal(terminal)
+  if on_current_tab(terminal) then
+    resync_size(terminal)
+    return terminal
+  end
+
+  if terminal.win_valid and terminal:win_valid() then
+    terminal:hide()
+  end
+
+  terminal:show()
+  resync_size(terminal)
+  return terminal
 end
 
 ---@return opencode.TerminalHandle|nil
@@ -290,34 +445,67 @@ end
 function M.toggle()
   local terminal = M.get(nil, false)
   if terminal and terminal.buf_valid and terminal:buf_valid() then
-    terminal:toggle()
+    if on_current_tab(terminal) then
+      terminal:hide()
+    elseif on_other_tab(terminal) then
+      restart_terminal(restart_target())
+    else
+      state.terminal = reveal(terminal)
+    end
     return
   end
 
-  local cmd, snacks_opts = get_opts(current_target())
-  state.terminal = require("snacks.terminal").open(cmd, snacks_opts)
+  open_terminal(current_target())
 end
 
 ---Start the primary embedded opencode terminal if it is not already running.
 function M.start()
-  if not M.get(nil, false) then
-    local cmd, snacks_opts = get_opts(current_target())
-    state.terminal = require("snacks.terminal").open(cmd, snacks_opts)
+  local terminal = M.get(nil, false)
+  if terminal and terminal.buf_valid and terminal:buf_valid() then
+    if on_other_tab(terminal) then
+      restart_terminal(restart_target())
+    else
+      state.terminal = reveal(terminal)
+    end
+    return
   end
+
+  if not terminal then
+    open_terminal(current_target())
+  end
+end
+
+---Resize the visible primary terminal to match its current window.
+function M.sync_size()
+  resync_size(M.get(nil, false))
+end
+
+---Return whether the primary embedded terminal buffer still exists.
+---@return boolean
+function M.is_open()
+  local terminal = M.get(nil, false)
+  return terminal ~= nil and terminal.buf_valid and terminal:buf_valid()
 end
 
 ---Stop a terminal by target, or stop the primary cached terminal when omitted.
 ---@param target? opencode.TerminalTarget
 function M.stop(target)
   local terminal = target == nil and state.terminal or M.get(target)
+  local buf = target == nil and terminal and terminal.buf or get_buf(target)
   local job = get_job(target)
+
+  if buf and vim.api.nvim_buf_is_valid(buf) then
+    expected_exit[buf] = true
+  end
 
   if job then
     vim.fn.jobstop(job)
+  elseif terminal then
+    terminal:close()
   end
 
-  if terminal then
-    terminal:close()
+  if not job and buf then
+    expected_exit[buf] = nil
   end
 
   if target == nil or state.terminal == terminal then
