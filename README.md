@@ -33,6 +33,9 @@ A Neovim plugin for running a local [opencode](https://github.com/anomalyco/open
       env = {
         -- Extra environment for the child `opencode attach` process
         SOME_CHILD_PROCESS_FLAG = "1",
+        -- Disables OpenTUI's Kitty graphics probe so it does not leak raw
+        -- probe text into the embedded Snacks terminal buffer.
+        OPENTUI_GRAPHICS = "0",
       },
     },
   },
@@ -75,6 +78,7 @@ require("opencode").setup({
 ```
 
 > **`terminal.env` note:** `opts.terminal.env` is only passed to the child `opencode attach` process. Backend/server feature flags usually need to be configured on the backend server process itself, not here.
+> **Embedded terminal note:** `opencode.nvim` runs the OpenCode TUI in a Snacks terminal. Neovim's embedded terminal does not support Kitty graphics, so setting `OPENTUI_GRAPHICS = "0"` under `opts.terminal.env` is recommended to avoid stray raw text like `Gi=31337,s=1,v=1,a=q,t=d,f=24;AAAA` appearing in the terminal buffer.
 > **Auto-reload note:** `auto_reload = true` still depends on Neovim `autoread`; set `vim.o.autoread = true` in your config. External non-OpenCode edits only surface through `OpencodeEvent:file.watcher.updated` when the backend server file watcher is enabled.
 > **Auth note:** backend auth is read from Neovim's `OPENCODE_SERVER_PASSWORD` and optional `OPENCODE_SERVER_USERNAME` environment variables. If you source credentials from a file or secret manager, populate `vim.env` before calling `require("opencode").setup(...)`.
 > **Width:** Set terminal width with `opts.terminal.width`.
