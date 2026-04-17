@@ -5,6 +5,11 @@
 -- user commands, and other startup hooks that should exist once the plugin is
 -- loaded.
 
+local client = require("opencode.client")
+local config = require("opencode.config")
+local opencode = require("opencode")
+local terminal = require("opencode.terminal")
+
 local augroup = vim.api.nvim_create_augroup("Opencode", { clear = true })
 
 ---Normalize a path to its absolute canonical form when possible.
@@ -73,7 +78,7 @@ end
 vim.api.nvim_create_autocmd("VimLeavePre", {
   group = augroup,
   callback = function()
-    pcall(require("opencode.terminal").stop)
+    pcall(terminal.stop)
   end,
   desc = "Stop opencode terminal on exit",
 })
@@ -83,12 +88,12 @@ vim.api.nvim_create_autocmd("TermClose", {
   group = augroup,
   ---@param ev vim.api.keyset.create_autocmd.callback_args
   callback = function(ev)
-    if not require("opencode.terminal").owns_buf(ev.buf) then
+    if not terminal.owns_buf(ev.buf) then
       return
     end
 
-    require("opencode.client").sse_unsubscribe()
-    require("opencode.terminal").forget_buf(ev.buf)
+    client.sse_unsubscribe()
+    terminal.forget_buf(ev.buf)
   end,
   desc = "Clean up SSE connection when opencode terminal exits",
 })
@@ -107,7 +112,7 @@ vim.api.nvim_create_autocmd({ "BufEnter", "WinEnter" }, {
   group = augroup,
   ---@param ev vim.api.keyset.create_autocmd.callback_args
   callback = function(ev)
-    if not require("opencode.terminal").owns_buf(ev.buf) then
+    if not terminal.owns_buf(ev.buf) then
       return
     end
     vim.schedule(function()
@@ -145,7 +150,7 @@ vim.api.nvim_create_autocmd("User", {
   pattern = { "OpencodeEvent:file.edited", "OpencodeEvent:file.watcher.updated" },
   ---@param args vim.api.keyset.create_autocmd.callback_args
   callback = function(args)
-    local opts = require("opencode.config").opts
+    local opts = config.opts
     if opts.auto_reload ~= false then
       if not vim.o.autoread then
         vim.notify(
@@ -179,7 +184,7 @@ vim.api.nvim_create_autocmd("User", {
   group = augroup,
   pattern = "OpencodeSessionChanged",
   callback = function()
-    require("opencode.client").ensure_subscribed()
+    client.ensure_subscribed()
   end,
   desc = "Keep opencode SSE subscription aligned with active session directory",
 })
@@ -189,7 +194,7 @@ vim.api.nvim_create_autocmd("User", {
 vim.api.nvim_create_user_command("Opencode", function(opts)
   local cmd = opts.fargs[1]
   if cmd == "status" then
-    require("opencode").status()
+    opencode.status()
   else
     vim.notify("Unknown command: " .. (cmd or ""), vim.log.levels.ERROR, { title = "opencode" })
   end

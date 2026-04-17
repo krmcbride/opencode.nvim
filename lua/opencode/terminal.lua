@@ -9,6 +9,7 @@ local bridge = require("opencode.bridge")
 local config = require("opencode.config")
 local TERMINAL_FILETYPE = require("opencode.constants").TERMINAL_FILETYPE
 local session = require("opencode.session")
+local snacks_terminal = require("snacks.terminal")
 
 ---@class opencode.TerminalTarget
 ---@field session_id? string|nil Explicit session id to attach to. When absent, the generated command follows the default attach behavior.
@@ -179,7 +180,7 @@ function M.get(target, create)
   if create ~= nil then
     opts.create = create
   end
-  local terminal = require("snacks.terminal").get(cmd, opts)
+  local terminal = snacks_terminal.get(cmd, opts)
   remember_terminal_buf(terminal)
   if target == nil and terminal and terminal.buf_valid and terminal:buf_valid() then
     state.terminal = terminal
@@ -333,7 +334,7 @@ function M.toggle()
   end
 
   local cmd, snacks_opts = get_opts(current_target())
-  state.terminal = require("snacks.terminal").open(cmd, snacks_opts)
+  state.terminal = snacks_terminal.open(cmd, snacks_opts)
   remember_terminal_buf(state.terminal)
 end
 
@@ -341,7 +342,7 @@ end
 function M.start()
   if not M.get(nil, false) then
     local cmd, snacks_opts = get_opts(current_target())
-    state.terminal = require("snacks.terminal").open(cmd, snacks_opts)
+    state.terminal = snacks_terminal.open(cmd, snacks_opts)
     remember_terminal_buf(state.terminal)
   end
 end
