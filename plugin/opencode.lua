@@ -6,7 +6,6 @@
 -- loaded.
 
 local augroup = vim.api.nvim_create_augroup("Opencode", { clear = true })
-local TERMINAL_FILETYPE = require("opencode.constants").TERMINAL_FILETYPE
 
 ---Normalize a path to its absolute canonical form when possible.
 ---
@@ -84,9 +83,12 @@ vim.api.nvim_create_autocmd("TermClose", {
   group = augroup,
   ---@param ev vim.api.keyset.create_autocmd.callback_args
   callback = function(ev)
-    if vim.bo[ev.buf].filetype == TERMINAL_FILETYPE then
-      require("opencode.client").sse_unsubscribe()
+    if not require("opencode.terminal").owns_buf(ev.buf) then
+      return
     end
+
+    require("opencode.client").sse_unsubscribe()
+    require("opencode.terminal").forget_buf(ev.buf)
   end,
   desc = "Clean up SSE connection when opencode terminal exits",
 })
@@ -105,7 +107,7 @@ vim.api.nvim_create_autocmd({ "BufEnter", "WinEnter" }, {
   group = augroup,
   ---@param ev vim.api.keyset.create_autocmd.callback_args
   callback = function(ev)
-    if vim.bo[ev.buf].filetype ~= TERMINAL_FILETYPE then
+    if not require("opencode.terminal").owns_buf(ev.buf) then
       return
     end
     vim.schedule(function()

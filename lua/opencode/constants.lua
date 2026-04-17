@@ -5,7 +5,7 @@
 local M = {}
 
 ---Filetype assigned to the embedded snacks terminal buffer.
----Autocmds and other terminal-specific behavior key off this value.
+---This keeps a consistent buffer identity for user config and integrations.
 M.TERMINAL_FILETYPE = "opencode_terminal"
 
 ---Local bridge HTTP path used by the bundled OpenCode TUI plugin.

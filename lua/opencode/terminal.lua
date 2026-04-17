@@ -20,7 +20,21 @@ local session = require("opencode.session")
 local state = {
   ---@type opencode.TerminalHandle|nil
   terminal = nil,
+  ---@type table<integer, true>
+  buffers = {},
 }
+
+---@param terminal opencode.TerminalHandle|nil
+local function remember_terminal_buf(terminal)
+  if not terminal then
+    return
+  end
+
+  local buf = terminal.buf
+  if type(buf) == "number" and buf > 0 then
+    state.buffers[buf] = true
+  end
+end
 
 ---Return the attach target the local terminal should use right now.
 ---
@@ -166,10 +180,34 @@ function M.get(target, create)
     opts.create = create
   end
   local terminal = require("snacks.terminal").get(cmd, opts)
+  remember_terminal_buf(terminal)
   if target == nil and terminal and terminal.buf_valid and terminal:buf_valid() then
     state.terminal = terminal
   end
   return terminal
+end
+
+---Return whether a buffer belongs to an opencode-managed terminal.
+---@param buf integer|nil
+---@return boolean
+function M.owns_buf(buf)
+  if type(buf) ~= "number" or buf <= 0 then
+    return false
+  end
+
+  if state.buffers[buf] then
+    return true
+  end
+
+  return false
+end
+
+---Forget a terminal buffer after its close lifecycle completes.
+---@param buf integer|nil
+function M.forget_buf(buf)
+  if type(buf) == "number" and buf > 0 then
+    state.buffers[buf] = nil
+  end
 end
 
 ---Resolve the backing buffer for a terminal handle/target.
@@ -296,6 +334,7 @@ function M.toggle()
 
   local cmd, snacks_opts = get_opts(current_target())
   state.terminal = require("snacks.terminal").open(cmd, snacks_opts)
+  remember_terminal_buf(state.terminal)
 end
 
 ---Start the primary embedded opencode terminal if it is not already running.
@@ -303,6 +342,7 @@ function M.start()
   if not M.get(nil, false) then
     local cmd, snacks_opts = get_opts(current_target())
     state.terminal = require("snacks.terminal").open(cmd, snacks_opts)
+    remember_terminal_buf(state.terminal)
   end
 end
 
