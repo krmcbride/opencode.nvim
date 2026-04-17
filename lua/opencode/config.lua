@@ -14,7 +14,7 @@ local M = {}
 ---@class opencode.TerminalConfig
 ---@field cmd? string Command to run (defaults to generated `opencode attach ...` command)
 ---@field dir? string Directory argument passed to `opencode attach`
----@field continue? boolean Continue the last session on launch (default: true)
+---@field continue? boolean Default `--continue` behavior for terminal launches (default: true)
 ---@field width? number Terminal window width passed to snacks.win.width
 ---@field env? table<string, string|number|boolean> Environment variables for the opencode process
 

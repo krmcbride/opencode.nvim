@@ -8,7 +8,7 @@ A Neovim plugin for running a local [opencode](https://github.com/anomalyco/open
 
 - Launch a local `opencode attach` TUI against a configured backend server
 - Bridge the active attached TUI session back into Neovim
-- Snacks terminal integration for toggling opencode
+- Snacks terminal integration for an embedded OpenCode TUI pane
 - Send prompts with context expansion (`@this`, `@buffer`, `@diagnostics`)
 - Send direct review comments for the current line or visual range to the active session
 - Auto-reload buffers when OpenCode edits files
@@ -44,7 +44,8 @@ A Neovim plugin for running a local [opencode](https://github.com/anomalyco/open
     vim.o.autoread = true
   end,
   keys = {
-    { "<leader>ac", function() require("opencode").toggle({ focus = true }) end, mode = { "n", "t" }, desc = "Toggle opencode" },
+    { "<leader>ac", function() require("opencode").start({ focus = true, continue = true }) end, mode = { "n", "t" }, desc = "Continue opencode" },
+    { "<leader>an", function() require("opencode").start({ focus = true, continue = false }) end, mode = { "n", "t" }, desc = "New opencode session" },
     { "<leader>aa", function() require("opencode").prompt("@this", { focus = true }) end, mode = { "n", "x" }, desc = "Add to prompt" },
     { "<leader>ab", function() require("opencode").prompt("@buffer", { focus = true }) end, desc = "Add buffer to prompt" },
     { "<leader>ad", function() require("opencode").prompt("@diagnostics", { focus = true }) end, desc = "Add diagnostics to prompt" },
@@ -70,7 +71,7 @@ require("opencode").setup({
   terminal = {
     cmd = nil,                -- Optional custom attach command
     dir = ".",               -- Directory passed to `opencode attach`
-    continue = true,          -- Add `--continue` when launching the TUI
+    continue = true,          -- Default launch behavior; `start` can override per call
     width = 0.35,
     env = nil,
   },
@@ -104,10 +105,11 @@ The bridge plugin is inert unless `opencode.nvim` launches the TUI with its brid
 ### Terminal Control
 
 ```lua
-require("opencode").toggle()                 -- Toggle the opencode terminal
-require("opencode").toggle({ focus = true }) -- Toggle and focus the terminal
 require("opencode").start()                  -- Start opencode if not running
-require("opencode").start({ focus = true })  -- Start and focus the terminal
+require("opencode").start({ focus = true })  -- Start and focus if a new terminal is opened
+require("opencode").start({ continue = true, focus = true }) -- Open with `--continue`, no-op if already open
+require("opencode").start({ continue = false }) -- Open without `--continue`, no-op if already open
+require("opencode").start({ continue = false, focus = true }) -- Open without `--continue`, no-op if already open
 require("opencode").attach_session("ses_...") -- Attach directly to a specific session id
 require("opencode").attach_session_prompt()   -- Prompt for a session id, then attach
 require("opencode").status()                 -- Show terminal, backend, bridge, and SSE status

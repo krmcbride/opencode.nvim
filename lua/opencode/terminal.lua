@@ -1,6 +1,6 @@
 ---Terminal management for opencode via snacks.nvim.
 ---
----Provides toggle/start/stop for a local opencode TUI client running in a
+---Provides start/stop for a local opencode TUI client running in a
 ---snacks terminal. Backend config lives in `opencode.config`, bridge transport
 ---lives in `opencode.bridge`, and attached-session coordination lives in
 ---`opencode.session`.
@@ -35,6 +35,70 @@ local function remember_terminal_buf(terminal)
   if type(buf) == "number" and buf > 0 then
     state.buffers[buf] = true
   end
+end
+
+---Resolve the best-known buffer for a Snacks terminal handle.
+---
+---Neovim terminal process state lives on the backing buffer via buffer-local
+---variables like `vim.b[buf].terminal_job_id`, but a Snacks handle may expose
+---either the buffer directly or only a still-valid window pointing at it.
+---This helper centralizes the "which buffer currently backs this terminal?"
+---lookup so later PTY/job checks can be written against a single buffer id.
+---@param terminal opencode.TerminalHandle|nil
+---@return integer|nil
+local function terminal_buf(terminal)
+  if not terminal then
+    return nil
+  end
+
+  if terminal.buf and vim.api.nvim_buf_is_valid(terminal.buf) then
+    return terminal.buf
+  end
+
+  if terminal.win and vim.api.nvim_win_is_valid(terminal.win) then
+    return vim.api.nvim_win_get_buf(terminal.win)
+  end
+
+  return nil
+end
+
+---Return whether a terminal handle still has a live PTY job.
+---
+---After `Ctrl-C`, Snacks may keep a terminal handle/buffer cached even though
+---the underlying PTY exited. Treat missing job metadata as "still starting" so
+---startup does not race and reopen a duplicate terminal.
+---@param terminal opencode.TerminalHandle|nil
+---@return boolean
+local function terminal_running(terminal)
+  local buf = terminal_buf(terminal)
+  if not buf then
+    return false
+  end
+
+  local job = vim.b[buf] and vim.b[buf].terminal_job_id
+  if not job or job <= 0 then
+    return true
+  end
+
+  -- `jobwait(..., 0)` polls without blocking; `-1` means the terminal job is still running.
+  local ok, result = pcall(vim.fn.jobwait, { job }, 0)
+  return ok and type(result) == "table" and result[1] == -1
+end
+
+---Close a stale terminal handle and clear the primary cache when needed.
+---@param terminal opencode.TerminalHandle|nil
+local function discard_terminal(terminal)
+  if not terminal then
+    return
+  end
+
+  if state.terminal == terminal then
+    state.terminal = nil
+  end
+
+  pcall(function()
+    terminal:close()
+  end)
 end
 
 ---Return the attach target the local terminal should use right now.
@@ -129,8 +193,9 @@ end
 ---If `terminal.cmd` is configured, use it verbatim as the escape hatch. The
 ---generated path builds `opencode attach ...` from structured config.
 ---@param target? opencode.TerminalTarget
+---@param launch_opts? opencode.TerminalLaunchOpts
 ---@return string
-local function get_cmd(target)
+local function get_cmd(target, launch_opts)
   local terminal = config.opts.terminal or {}
   target = target or current_target()
   if terminal.cmd then
@@ -146,6 +211,10 @@ local function get_cmd(target)
   if target.session_id and target.session_id ~= "" then
     table.insert(cmd, "--session")
     table.insert(cmd, quote(target.session_id))
+  elseif launch_opts and launch_opts["continue"] ~= nil then
+    if launch_opts["continue"] ~= false then
+      table.insert(cmd, "--continue")
+    end
   elseif terminal["continue"] ~= false then
     table.insert(cmd, "--continue")
   end
@@ -154,8 +223,9 @@ end
 
 ---Build snacks.nvim options for the requested terminal target.
 ---@param target? opencode.TerminalTarget
+---@param launch_opts? opencode.TerminalLaunchOpts
 ---@return string, table
-local function get_opts(target)
+local function get_opts(target, launch_opts)
   local terminal = config.opts.terminal or {}
   ---@type table
   local snacks_opts = vim.deepcopy(DEFAULT_SNACKS_OPTS)
@@ -163,15 +233,19 @@ local function get_opts(target)
   snacks_opts.win.width = terminal.width
   snacks_opts.env = get_env()
 
-  return get_cmd(target), snacks_opts
+  return get_cmd(target, launch_opts), snacks_opts
 end
 
 ---@return opencode.TerminalHandle|nil
 ---@param target? opencode.TerminalTarget
 ---@param create? boolean
 function M.get(target, create)
-  if target == nil and state.terminal and state.terminal.buf_valid and state.terminal:buf_valid() then
-    return state.terminal
+  if target == nil and state.terminal then
+    if terminal_running(state.terminal) then
+      return state.terminal
+    end
+
+    discard_terminal(state.terminal)
   end
 
   local cmd, snacks_opts = get_opts(target)
@@ -181,11 +255,23 @@ function M.get(target, create)
     opts.create = create
   end
   local terminal = snacks_terminal.get(cmd, opts)
-  remember_terminal_buf(terminal)
-  if target == nil and terminal and terminal.buf_valid and terminal:buf_valid() then
-    state.terminal = terminal
+  if terminal and terminal_running(terminal) then
+    remember_terminal_buf(terminal)
+    if target == nil then
+      state.terminal = terminal
+    end
+    return terminal
   end
-  return terminal
+
+  if terminal then
+    discard_terminal(terminal)
+  end
+
+  if target == nil then
+    state.terminal = nil
+  end
+
+  return nil
 end
 
 ---Return whether a buffer belongs to an opencode-managed terminal.
@@ -208,34 +294,18 @@ end
 function M.forget_buf(buf)
   if type(buf) == "number" and buf > 0 then
     state.buffers[buf] = nil
-  end
-end
 
----Resolve the backing buffer for a terminal handle/target.
----@return integer|nil
----@param target? opencode.TerminalTarget
-local function get_buf(target)
-  local terminal = M.get(target)
-  if not terminal then
-    return nil
+    if terminal_buf(state.terminal) == buf then
+      state.terminal = nil
+    end
   end
-
-  if terminal.buf and vim.api.nvim_buf_is_valid(terminal.buf) then
-    return terminal.buf
-  end
-
-  if terminal.win and vim.api.nvim_win_is_valid(terminal.win) then
-    return vim.api.nvim_win_get_buf(terminal.win)
-  end
-
-  return nil
 end
 
 ---Resolve the terminal job id for a handle/target.
 ---@return integer|nil
 ---@param target? opencode.TerminalTarget
 local function get_job(target)
-  local buf = get_buf(target)
+  local buf = terminal_buf(M.get(target))
   if not buf then
     return nil
   end
@@ -325,26 +395,18 @@ function M.send(text, callback)
   end, nil)
 end
 
----Toggle the primary embedded opencode terminal.
-function M.toggle()
-  local terminal = M.get(nil, false)
-  if terminal and terminal.buf_valid and terminal:buf_valid() then
-    terminal:toggle()
-    return
+---Start the primary embedded opencode terminal if it is not already running.
+---@param launch_opts? opencode.TerminalLaunchOpts
+---@return boolean started True when a new terminal was launched.
+function M.start(launch_opts)
+  if M.get(nil, false) then
+    return false
   end
 
-  local cmd, snacks_opts = get_opts(current_target())
+  local cmd, snacks_opts = get_opts(current_target(), launch_opts)
   state.terminal = snacks_terminal.open(cmd, snacks_opts)
   remember_terminal_buf(state.terminal)
-end
-
----Start the primary embedded opencode terminal if it is not already running.
-function M.start()
-  if not M.get(nil, false) then
-    local cmd, snacks_opts = get_opts(current_target())
-    state.terminal = snacks_terminal.open(cmd, snacks_opts)
-    remember_terminal_buf(state.terminal)
-  end
+  return true
 end
 
 ---Stop a terminal by target, or stop the primary cached terminal when omitted.

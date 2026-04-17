@@ -4,6 +4,8 @@
     "bash": {
       "nix develop --command luac -p *": "allow",
       "nix develop --command stylua *": "allow",
+      "luac -p *": "allow",
+      "stylua *": "allow",
       "nvim --headless '+lua print(*)' +q*": "allow",
       "nvim --headless -u NONE \"+set rtp+=*opencode.nvim*\" \"+lua require(*opencode*)\" +q*": "allow"
     }

@@ -84,31 +84,26 @@ local function focus_terminal(opts)
   end)
 end
 
----@class opencode.ToggleOpts
+---@class opencode.TerminalLaunchOpts
 ---@field focus? boolean After open: focus the window and enter Terminal mode (not Normal over the split)
-
----Toggle the opencode terminal.
----@param opts? opencode.ToggleOpts
-M.toggle = function(opts)
-  opts = opts or {}
-  terminal.toggle()
-  -- The terminal may have created or focused a session that should own the SSE subscription.
-  client.ensure_subscribed()
-  if opts.focus then
-    focus_terminal()
-  end
-end
+---@field continue? boolean Override `opts.terminal.continue` for this launch when no explicit session target is set.
 
 ---Start the opencode terminal.
----@param opts? opencode.ToggleOpts
+---@param opts? opencode.TerminalLaunchOpts
+---@return boolean started True when a new terminal was launched.
 M.start = function(opts)
   opts = opts or {}
-  terminal.start()
+  if not terminal.start(opts) then
+    return false
+  end
+
   -- Starting the TUI is the earliest point where attach-mode session state can exist.
   client.ensure_subscribed()
   if opts.focus then
     focus_terminal()
   end
+
+  return true
 end
 
 ---Attach the embedded TUI directly to a specific session id.
