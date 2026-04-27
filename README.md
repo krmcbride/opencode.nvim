@@ -8,6 +8,7 @@ A Neovim plugin for running a local [opencode](https://github.com/anomalyco/open
 
 - Launch a local `opencode attach` TUI against a configured backend server
 - Bridge the active attached TUI session back into Neovim
+- Share the active Neovim file or visual selection with OpenCode's native editor-context integration
 - Snacks terminal integration for an embedded OpenCode TUI pane
 - Send prompts with context expansion (`@this`, `@buffer`, `@diagnostics`)
 - Send direct review comments for the current line or visual range to the active session
@@ -46,7 +47,8 @@ A Neovim plugin for running a local [opencode](https://github.com/anomalyco/open
   keys = {
     { "<leader>ac", function() require("opencode").start({ focus = true, continue = true }) end, mode = { "n", "t" }, desc = "Continue opencode" },
     { "<leader>an", function() require("opencode").start({ focus = true, continue = false }) end, mode = { "n", "t" }, desc = "New opencode session" },
-    { "<leader>aa", function() require("opencode").prompt("@this", { focus = true }) end, mode = { "n", "x" }, desc = "Add to prompt" },
+    { "<leader>aa", function() require("opencode").mention_selection({ focus = true }) end, mode = { "n", "x" }, desc = "Native mention selection" },
+    { "<leader>aA", function() require("opencode").prompt("@this", { focus = true }) end, mode = { "n", "x" }, desc = "Append selection to prompt" },
     { "<leader>ab", function() require("opencode").prompt("@buffer", { focus = true }) end, desc = "Add buffer to prompt" },
     { "<leader>ad", function() require("opencode").prompt("@diagnostics", { focus = true }) end, desc = "Add diagnostics to prompt" },
     { "<leader>as", function() require("opencode").attach_session_prompt() end, desc = "Attach session ID" },
@@ -68,6 +70,9 @@ require("opencode").setup({
     url = "http://127.0.0.1:4096", -- Backend server URL
   },
   auto_reload = true,          -- Reload matching buffers on OpenCode edit events
+  editor_context = {
+    enabled = true,            -- Share active Neovim file/selection with the embedded OpenCode TUI
+  },
   terminal = {
     cmd = nil,                -- Optional custom attach command
     dir = ".",               -- Directory passed to `opencode attach`
@@ -79,6 +84,7 @@ require("opencode").setup({
 ```
 
 > **`terminal.env` note:** `opts.terminal.env` is only passed to the child `opencode attach` process. Backend/server feature flags usually need to be configured on the backend server process itself, not here.
+> **Editor context note:** `editor_context.enabled = true` starts a localhost WebSocket server lazily when the embedded TUI starts and injects `OPENCODE_EDITOR_SSE_PORT` into that TUI process. The long-running OpenCode backend server is not involved. If `terminal.env.OPENCODE_EDITOR_SSE_PORT` is already set, that explicit value is left untouched. To keep OpenCode's native integration from accidentally using an inherited Claude Code bridge, `CLAUDE_CODE_SSE_PORT` is cleared in the child TUI env and a warning is shown if a non-empty value is detected.
 > **Embedded terminal note:** `opencode.nvim` runs the OpenCode TUI in a Snacks terminal. Neovim's embedded terminal does not support Kitty graphics, so setting `OPENTUI_GRAPHICS = "0"` under `opts.terminal.env` is recommended to avoid stray raw text like `Gi=31337,s=1,v=1,a=q,t=d,f=24;AAAA` appearing in the terminal buffer.
 > **Auto-reload note:** `auto_reload = true` still depends on Neovim `autoread`; set `vim.o.autoread = true` in your config. External non-OpenCode edits only surface through `OpencodeEvent:file.watcher.updated` when the backend server file watcher is enabled.
 > **Auth note:** backend auth is read from Neovim's `OPENCODE_SERVER_PASSWORD` and optional `OPENCODE_SERVER_USERNAME` environment variables. If you source credentials from a file or secret manager, populate `vim.env` before calling `require("opencode").setup(...)`.
@@ -118,8 +124,11 @@ require("opencode").status()                 -- Show terminal, backend, bridge, 
 ### Prompts
 
 ```lua
--- Add context to the prompt (build up context, then submit in TUI)
-require("opencode").prompt("@this")         -- Current line or selection
+-- Insert the current line or selection through OpenCode's native editor integration.
+require("opencode").mention_selection({ focus = true })
+
+-- Add context through prompt appending (build up context, then submit in TUI).
+require("opencode").prompt("@this")         -- Current line or selection, legacy append path
 require("opencode").prompt("@buffer")       -- Current file
 require("opencode").prompt("@diagnostics")  -- LSP diagnostics
 
@@ -140,6 +149,12 @@ require("opencode").prompt("Explain this", { clear = true, submit = true })
 | `focus` | boolean | Focus the terminal after append; also enters Terminal mode and moves the cursor to EOL (see note below) |
 
 > **`focus` behavior:** OpenCode’s `@` picker expects the cursor at the end of an `@path` fragment. With `focus = true`, the plugin focuses the snacks terminal, switches to Terminal mode, then jumps to the end of the prompt so appended refs match that expectation.
+
+**Native Mentions vs Prompt Appending:**
+
+`mention_selection()` uses OpenCode's native editor-context WebSocket and sends an `at_mentioned` notification directly to the embedded TUI. This is the preferred path for current-line and visual-range mentions because it creates the TUI file mention without writing text through the terminal PTY or relying on autocomplete focus behavior.
+
+`prompt("@this")`, `prompt("@buffer")`, and `prompt("@diagnostics")` use opencode.nvim's older prompt-append path. Keep this path for whole-buffer mentions, diagnostics, directory/file refs from pickers, and compatibility with older OpenCode versions. `mention_selection()` falls back to `prompt("@this")` if the embedded TUI has not connected to the editor-context WebSocket yet, unless called with `{ fallback = false }`.
 
 **Context Placeholders:**
 

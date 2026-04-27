@@ -10,6 +10,7 @@ local bridge = require("opencode.bridge")
 local client = require("opencode.client")
 local config = require("opencode.config")
 local context = require("opencode.context")
+local editor_context = require("opencode.editor_context")
 local input = require("opencode.input")
 local review = require("opencode.review")
 local session = require("opencode.session")
@@ -191,6 +192,37 @@ function M.prompt(prompt, opts)
   end)
 end
 
+---@class opencode.MentionSelectionOpts
+---@field focus? boolean After inserting the native mention, focus the terminal.
+---@field fallback? boolean Use the legacy prompt append path when no native editor-context client is connected (default: true).
+
+---Insert the current file or visual range into the OpenCode TUI using the native
+---editor-context `at_mentioned` notification.
+---
+---This is the native equivalent of `prompt("@this")` for file/range mentions.
+---It leaves the older prompt-append path available for side-by-side testing and
+---falls back to it when the embedded TUI is not connected to the editor-context
+---WebSocket yet.
+---@param opts? opencode.MentionSelectionOpts
+---@return boolean used_native True when the native editor-context path was used.
+function M.mention_selection(opts)
+  opts = opts or {}
+  if editor_context.mention_current() then
+    if opts.focus then
+      focus_terminal()
+    end
+    return true
+  end
+
+  if opts.fallback == false then
+    vim.notify("OpenCode editor context is not connected", vim.log.levels.WARN, { title = "opencode" })
+    return false
+  end
+
+  M.prompt("@this", { focus = opts.focus })
+  return false
+end
+
 ---Prompt for a review message and send the current line or active visual
 ---selection directly to the active session as a ranged file attachment.
 function M.review_selection()
@@ -209,6 +241,7 @@ function M.status()
   local sse = client.get_status()
   local current_session = session.get_state()
   local bridge_url = bridge.get_url()
+  local editor = editor_context.status()
 
   ---@type string[]
   local lines = {}
@@ -222,6 +255,15 @@ function M.status()
 
   table.insert(lines, "Backend: " .. config.get_url())
   table.insert(lines, "Bridge: " .. (bridge_url or "not started"))
+  table.insert(
+    lines,
+    "Editor context: "
+      .. (
+        editor.running
+          and ("listening on 127.0.0.1:" .. tostring(editor.port) .. " (" .. editor.clients .. " client(s))")
+        or "not started"
+      )
+  )
   table.insert(lines, "Route: " .. current_session.route)
   table.insert(lines, "Session: " .. (current_session.session_id or "none"))
 

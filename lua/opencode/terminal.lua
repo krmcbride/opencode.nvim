@@ -7,6 +7,7 @@
 local M = {}
 local bridge = require("opencode.bridge")
 local config = require("opencode.config")
+local editor_context = require("opencode.editor_context")
 local TERMINAL_FILETYPE = require("opencode.constants").TERMINAL_FILETYPE
 local session = require("opencode.session")
 local snacks_terminal = require("snacks.terminal")
@@ -23,6 +24,7 @@ local state = {
   terminal = nil,
   ---@type table<integer, true>
   buffers = {},
+  warned_claude_editor_port = false,
 }
 
 ---@param terminal opencode.TerminalHandle|nil
@@ -392,8 +394,10 @@ end
 ---
 ---This is not a general backend-daemon configuration surface. Server-side
 ---feature flags still need to be configured on the backend process itself.
+---@param opts? { editor_context?: boolean }
 ---@return table<string, string>|nil
-local function get_env()
+local function get_env(opts)
+  opts = opts or {}
   local terminal = config.opts.terminal or {}
   local env = vim.deepcopy(terminal.env or {})
   local auth = config.get_auth()
@@ -406,6 +410,24 @@ local function get_env()
 
   for key, value in pairs(bridge_env) do
     env[key] = value
+  end
+
+  if opts.editor_context ~= false and (config.opts.editor_context or {}).enabled ~= false then
+    if env.OPENCODE_EDITOR_SSE_PORT == nil then
+      env.OPENCODE_EDITOR_SSE_PORT = tostring(editor_context.ensure().port)
+    end
+    local claude_port = env.CLAUDE_CODE_SSE_PORT or vim.env.CLAUDE_CODE_SSE_PORT
+    if claude_port and claude_port ~= "" and not state.warned_claude_editor_port then
+      state.warned_claude_editor_port = true
+      vim.schedule(function()
+        vim.notify(
+          "Ignoring CLAUDE_CODE_SSE_PORT for embedded OpenCode TUI; using OPENCODE_EDITOR_SSE_PORT instead",
+          vim.log.levels.WARN,
+          { title = "opencode" }
+        )
+      end)
+    end
+    env.CLAUDE_CODE_SSE_PORT = ""
   end
 
   return normalize_env(env)
@@ -447,14 +469,15 @@ end
 ---Build snacks.nvim options for the requested terminal target.
 ---@param target? opencode.TerminalTarget
 ---@param launch_opts? opencode.TerminalLaunchOpts
+---@param opts? { editor_context?: boolean }
 ---@return string, table
-local function get_opts(target, launch_opts)
+local function get_opts(target, launch_opts, opts)
   local terminal = config.opts.terminal or {}
   ---@type table
   local snacks_opts = vim.deepcopy(DEFAULT_SNACKS_OPTS)
 
   snacks_opts.win.width = terminal.width
-  snacks_opts.env = get_env()
+  snacks_opts.env = get_env(opts)
 
   return get_cmd(target, launch_opts), snacks_opts
 end
@@ -471,7 +494,7 @@ function M.get(target, create)
     discard_terminal(state.terminal)
   end
 
-  local cmd, snacks_opts = get_opts(target)
+  local cmd, snacks_opts = get_opts(target, nil, { editor_context = false })
   ---@type table
   local opts = vim.tbl_deep_extend("force", snacks_opts, { create = false })
   if create ~= nil then
@@ -520,6 +543,10 @@ function M.forget_buf(buf)
 
     if terminal_buf(state.terminal) == buf then
       state.terminal = nil
+    end
+
+    if not next(state.buffers) then
+      editor_context.stop()
     end
   end
 end
@@ -648,6 +675,7 @@ function M.stop(target)
 
   if target == nil or state.terminal == terminal then
     state.terminal = nil
+    editor_context.stop()
   end
 end
 

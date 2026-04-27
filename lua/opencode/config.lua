@@ -7,6 +7,7 @@ local M = {}
 ---@field server? opencode.ServerConfig
 ---@field auto_reload? boolean Reload buffers on file.edited (default: true)
 ---@field terminal? opencode.TerminalConfig
+---@field editor_context? opencode.EditorContextConfig
 
 ---@class opencode.ServerConfig
 ---@field url? string Backend URL for API and attach mode
@@ -18,12 +19,18 @@ local M = {}
 ---@field width? number Terminal window width passed to snacks.win.width
 ---@field env? table<string, string|number|boolean> Environment variables for the opencode process
 
+---@class opencode.EditorContextConfig
+---@field enabled? boolean Enable native OpenCode editor context over WebSocket (default: true)
+
 ---@type opencode.Opts
 local defaults = {
   server = {
     url = "http://127.0.0.1:4096",
   },
   auto_reload = true,
+  editor_context = {
+    enabled = true,
+  },
   terminal = {
     cmd = nil,
     dir = ".",
