@@ -243,7 +243,10 @@ end
 ---
 ---The terminal window itself must not be used: temporarily replacing its buffer
 ---is what caused Snacks/OpenTUI rendering to shift after native `gf`. Prefer
----the previous window, then any non-floating normal-buffer window in the tab.
+---the previous normal-buffer window, then any non-floating normal-buffer window
+---in the tab. If Neovim is still on a dashboard/home screen, there may not be a
+---normal buffer yet, so fall back to the previous non-floating window and let
+---`:edit` replace that startup buffer.
 ---@param exclude_win integer|nil
 ---@return integer|nil
 local function find_edit_window(exclude_win)
@@ -261,6 +264,12 @@ local function find_edit_window(exclude_win)
       if vim.bo[buf].buftype == "" then
         return win
       end
+    end
+  end
+
+  if previous ~= 0 and previous ~= exclude_win and vim.api.nvim_win_is_valid(previous) then
+    if vim.api.nvim_win_get_config(previous).zindex == nil then
+      return previous
     end
   end
 
