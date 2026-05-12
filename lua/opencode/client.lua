@@ -122,16 +122,88 @@ local function subscription_directory()
   return vim.fs.normalize(vim.fn.fnamemodify(dir, ":p"))
 end
 
----Build the SSE endpoint URL, including optional backend directory scoping.
+---@param path string|nil
+---@return string|nil
+local function normalize_path(path)
+  if type(path) ~= "string" or path == "" then
+    return nil
+  end
+
+  return vim.fs.normalize(vim.fn.fnamemodify(path, ":p"))
+end
+
+---@param parent string
+---@param child string
+---@return boolean
+local function path_contains(parent, child)
+  local normalized_parent = parent:gsub("/+$", "")
+  local normalized_child = child:gsub("/+$", "")
+  local prefix = normalized_parent .. "/"
+  return normalized_child == normalized_parent or normalized_child:sub(1, #prefix) == prefix
+end
+
+---@param event_directory string|nil
+---@param directory string|nil
+---@return boolean
+local function matches_directory_scope(event_directory, directory)
+  if not event_directory or event_directory == "" then
+    return true
+  end
+
+  local event_path = normalize_path(event_directory)
+  local subscription_path = normalize_path(directory)
+  if not event_path or not subscription_path then
+    return false
+  end
+
+  return path_contains(event_path, subscription_path) or path_contains(subscription_path, event_path)
+end
+
+---@class opencode.NormalizedEvent
+---@field event opencode.Event
+---@field directory string|nil
+
+---Normalize instance and global SSE event wire formats.
+---
+---OpenCode 1.14.42+ serves the old instance `/event` stream through the
+---Effect HttpApi backend. That stream can end when its instance scope is
+---disposed, producing reconnect loops. The global stream is process-scoped and
+---wraps instance events as `{ directory, payload }`, so the plugin consumes it
+---and filters events back to the active session directory here.
+---@param response table
+---@param directory string|nil
+---@return opencode.NormalizedEvent|nil
+local function normalize_event(response, directory)
+  if type(response) ~= "table" then
+    return nil
+  end
+
+  local event = response
+  local event_directory = nil
+  if type(response.payload) == "table" then
+    event = response.payload
+    event_directory = response.directory
+  end
+
+  if type(event.type) ~= "string" then
+    return nil
+  end
+
+  if not matches_directory_scope(event_directory, directory) then
+    return nil
+  end
+
+  return {
+    event = event,
+    directory = event_directory,
+  }
+end
+
+---Build the process-scoped SSE endpoint URL.
 ---@param base string
 ---@return string
 local function sse_endpoint(base)
-  local url = endpoint(base, "/event")
-  local directory = subscription_directory()
-  if directory and directory ~= "" then
-    url = url .. "?directory=" .. vim.uri_encode(directory)
-  end
-  return url
+  return endpoint(base, "/global/event")
 end
 
 ---@return integer
@@ -506,8 +578,9 @@ end
 
 ---Subscribe to backend SSE events for the current backend directory scope.
 ---
----The backend stream is directory-scoped, so when the active embedded-TUI cwd
----changes we must re-subscribe with the new `?directory=` query value.
+---OpenCode's global stream is process-scoped; this subscription records the
+---active embedded-TUI cwd so incoming global envelopes can be filtered back to
+---the relevant session directory.
 ---@param url string
 ---@param callback? fun(event: opencode.Event)
 function M.sse_subscribe(url, callback)
@@ -534,6 +607,13 @@ function M.sse_subscribe(url, callback)
         return
       end
 
+      local normalized = normalize_event(response, directory)
+      if not normalized then
+        return
+      end
+
+      local event = normalized.event
+
       if first_event then
         first_event = false
         clear_reconnect_state()
@@ -551,12 +631,12 @@ function M.sse_subscribe(url, callback)
       )
 
       vim.api.nvim_exec_autocmds("User", {
-        pattern = "OpencodeEvent:" .. response.type,
-        data = { event = response, url = url },
+        pattern = "OpencodeEvent:" .. event.type,
+        data = { event = event, url = url, directory = normalized.directory },
       })
 
       if callback then
-        callback(response)
+        callback(event)
       end
     end, function(code, stderr_lines)
       vim.schedule(function()
