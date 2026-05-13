@@ -4,6 +4,8 @@ A Neovim plugin for running a local [opencode](https://github.com/anomalyco/open
 
 ![opencode.nvim showing the attach-mode UI inside Snacks terminal](assets/screenshot.png)
 
+[Watch the review queue demo](https://github.com/user-attachments/assets/ad378562-14bb-4525-ae66-711d5da826e0)
+
 ## Features
 
 - Launch a local `opencode attach` TUI against a configured backend server
@@ -12,6 +14,7 @@ A Neovim plugin for running a local [opencode](https://github.com/anomalyco/open
 - Snacks terminal integration for an embedded OpenCode TUI pane
 - Send prompts with context expansion (`@this`, `@buffer`, `@diagnostics`)
 - Send direct review comments for the current line or visual range to the active session
+- Queue multiple review comments in quickfix and send them as one direct backend request
 - Auto-reload buffers when OpenCode edits files
 - Expose `User` autocmds for notifications, statusline/tmux hooks, and other local integrations
 
@@ -54,6 +57,9 @@ A Neovim plugin for running a local [opencode](https://github.com/anomalyco/open
     { "<leader>as", function() require("opencode").attach_session_prompt() end, desc = "Attach session ID" },
     { "<leader>av", function() require("opencode").review_selection() end, mode = "n", desc = "Review line" },
     { "<leader>av", function() require("opencode").review_visual_selection() end, mode = "x", desc = "Review selection" },
+    { "<leader>ao", function() require("opencode").open_review_queue() end, desc = "Open review queue" },
+    { "<leader>ap", function() require("opencode").send_review_queue() end, desc = "Send review queue" },
+    { "<leader>aP", function() require("opencode").clear_review_queue() end, desc = "Clear review queue" },
   },
 }
 ```
@@ -173,11 +179,21 @@ They only work when prompt text flows through `opencode.nvim` APIs like `require
 ### Reviews
 
 ```lua
--- Review the current line in the active attached TUI session.
+-- Review the current line with one composer that can queue or send.
 require("opencode").review_selection()
 
--- Review the current visual range in the active attached TUI session.
+-- Review the current visual range with one composer that can queue or send.
 require("opencode").review_visual_selection()
+
+-- Queue-only compatibility entrypoints.
+require("opencode").queue_review_selection()
+require("opencode").queue_review_visual_selection()
+
+-- Inspect, send, or clear the queued comments.
+require("opencode").open_review_queue()
+require("opencode").send_review_queue()
+require("opencode").clear_review_queue()
+require("opencode").review_queue_count()
 ```
 
 Reviews are sent directly through `POST /session/<sessionID>/prompt_async` using:
@@ -187,18 +203,26 @@ Reviews are sent directly through `POST /session/<sessionID>/prompt_async` using
 
 The review popup is a small cursor-anchored editor float:
 
-- `Ctrl-S` submits in normal or insert mode
+- `Ctrl-S` queues the comment in normal or insert mode
+- `Ctrl-Enter` sends the comment immediately in normal or insert mode
 - `Ctrl-C` cancels in insert mode
 - `q` cancels in normal mode
 - `Enter` inserts a newline
 
 Direct review sends reuse the last persisted user message's `agent`, `model`, and `variant` when available, so they generally match the active session's existing model choice without requiring OpenCode core changes.
 
+Queued reviews use the same popup and selection behavior. The queue is process-local and is not persisted across Neovim restarts. Quickfix is only a projection for navigation and source previews; the plugin keeps the actual queue state internally. bqf is optional, but it makes the quickfix queue easier to browse. For loaded buffers, queued ranges are tracked with Neovim extmarks so quickfix and sends follow line shifts from edits above the queued range; if those marks are unavailable, the plugin falls back to the originally queued line numbers.
+
+Opening the queue with `open_review_queue()` or `:Opencode review-queue-open` refreshes quickfix with one item per queued comment and a flattened one-line summary for multiline comments. Press `e` in that quickfix list to reopen the selected queued comment in the editor popup, anchored on the queued source location when that file is visible. Sending the queue uses one direct `prompt_async` request with one ordered text part and one ranged file attachment per queued item. The queue is cleared only after the backend send succeeds; failed sends leave queued comments intact.
+
 ## User Commands
 
 | Command | Description |
-| ------------------ | --------------------------------------- |
+| -------------------------------- | --------------------------------------- |
 | `:Opencode status` | Show terminal, backend, bridge, and SSE status |
+| `:Opencode review-queue-open` | Open the review queue quickfix projection |
+| `:Opencode review-queue-send` | Send queued review comments to the active session |
+| `:Opencode review-queue-clear` | Clear queued review comments |
 
 `status` includes the backend URL, SSE directory, bridge URL, bridged TUI route, and active session so you can verify where events and direct reviews are going.
 

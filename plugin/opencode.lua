@@ -190,18 +190,36 @@ vim.api.nvim_create_autocmd("User", {
 })
 
 -- Minimal user-command surface for plugin-wide status and diagnostics.
+local commands = {
+  status = function()
+    opencode.status()
+  end,
+  ["review-queue-open"] = function()
+    opencode.open_review_queue()
+  end,
+  ["review-queue-send"] = function()
+    opencode.send_review_queue()
+  end,
+  ["review-queue-clear"] = function()
+    opencode.clear_review_queue()
+  end,
+}
+local command_names = vim.tbl_keys(commands)
+table.sort(command_names)
+
 ---@param opts vim.api.keyset.create_user_command.command_args
 vim.api.nvim_create_user_command("Opencode", function(opts)
   local cmd = opts.fargs[1]
-  if cmd == "status" then
-    opencode.status()
+  local handler = commands[cmd]
+  if handler then
+    handler()
   else
     vim.notify("Unknown command: " .. (cmd or ""), vim.log.levels.ERROR, { title = "opencode" })
   end
 end, {
   nargs = 1,
   complete = function()
-    return { "status" }
+    return command_names
   end,
   desc = "Opencode commands",
 })
