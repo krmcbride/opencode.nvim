@@ -10,7 +10,7 @@
 local M = {}
 local Snacks = require("snacks")
 
----@alias opencode.input.ConfirmCallback fun(value?: string)
+---@alias opencode.input.ConfirmCallback fun(value?: string, action?: string)
 
 ---@class opencode.input.SimpleOpts
 ---@field prompt? string
@@ -21,6 +21,15 @@ local Snacks = require("snacks")
 ---@field prompt? string
 ---@field default? string
 ---@field title? string
+---@field action_label? string
+---@field actions? opencode.input.ReviewAction[]
+
+---@class opencode.input.ReviewAction
+---@field name string
+---@field key string
+---@field key_label string
+---@field label string
+---@field mode? string|string[]
 
 ---Show a simple single-line input prompt.
 ---
@@ -41,6 +50,31 @@ end
 ---@param on_confirm opencode.input.ConfirmCallback
 function M.review(opts, on_confirm)
   local width = math.max(48, math.min(72, vim.o.columns - 8))
+  local raw_actions = opts.actions
+    or {
+      {
+        name = "submit",
+        key = "<c-s>",
+        key_label = "Ctrl-S",
+        label = opts.action_label or "Submit",
+        mode = { "n", "i" },
+      },
+    }
+  local actions = {}
+  for index, action in ipairs(raw_actions) do
+    assert(
+      type(action.name) == "string" and action.name ~= "",
+      "review action " .. tostring(index) .. " requires a name"
+    )
+    assert(type(action.key) == "string" and action.key ~= "", "review action " .. tostring(index) .. " requires a key")
+    table.insert(actions, {
+      name = action.name,
+      key = action.key,
+      key_label = action.key_label or action.key,
+      label = action.label or action.name,
+      mode = action.mode or { "n", "i" },
+    })
+  end
   local done = false
   ---@type snacks.win|nil
   local win
@@ -55,27 +89,23 @@ function M.review(opts, on_confirm)
       return
     end
 
-    if mode == "i" then
-      win.opts.footer = {
-        { " ", "SnacksFooter" },
-        { " Ctrl-S ", "SnacksFooterKey" },
-        { " Submit ", "SnacksFooterDesc" },
-        { " ", "SnacksFooter" },
-        { " Ctrl-C ", "SnacksFooterKey" },
-        { " Cancel ", "SnacksFooterDesc" },
-        { " ", "SnacksFooter" },
-      }
-    else
-      win.opts.footer = {
-        { " ", "SnacksFooter" },
-        { " Ctrl-S ", "SnacksFooterKey" },
-        { " Submit ", "SnacksFooterDesc" },
-        { " ", "SnacksFooter" },
-        { " q ", "SnacksFooterKey" },
-        { " Cancel ", "SnacksFooterDesc" },
-        { " ", "SnacksFooter" },
-      }
+    local footer = {
+      { " ", "SnacksFooter" },
+    }
+    for _, action in ipairs(actions) do
+      table.insert(footer, { " " .. action.key_label .. " ", "SnacksFooterKey" })
+      table.insert(footer, { " " .. action.label .. " ", "SnacksFooterDesc" })
+      table.insert(footer, { " ", "SnacksFooter" })
     end
+    if mode == "i" then
+      table.insert(footer, { " Ctrl-C ", "SnacksFooterKey" })
+    else
+      table.insert(footer, { " q ", "SnacksFooterKey" })
+    end
+    table.insert(footer, { " Cancel ", "SnacksFooterDesc" })
+    table.insert(footer, { " ", "SnacksFooter" })
+
+    win.opts.footer = footer
 
     if win:valid() then
       vim.api.nvim_win_set_config(win.win, {
@@ -97,7 +127,8 @@ function M.review(opts, on_confirm)
 
   ---Close the composer exactly once and report the final value.
   ---@param value string|nil
-  local function finish(value)
+  ---@param action string|nil
+  local function finish(value, action)
     if done then
       return
     end
@@ -108,8 +139,40 @@ function M.review(opts, on_confirm)
     end
     restore_parent()
     vim.schedule(function()
-      on_confirm(value)
+      on_confirm(value, action)
     end)
+  end
+
+  local keys = {
+    q = false,
+    cancel = {
+      "q",
+      function()
+        finish(nil)
+      end,
+      desc = "Cancel",
+      mode = "n",
+    },
+    cancel_ctrl = {
+      "<c-c>",
+      function()
+        finish(nil)
+      end,
+      desc = "Cancel",
+      mode = "i",
+    },
+  }
+
+  for index, action in ipairs(actions) do
+    local current_action = action
+    keys["action_" .. tostring(index)] = {
+      current_action.key,
+      function(self)
+        finish(vim.trim(self:text()), current_action.name)
+      end,
+      desc = current_action.label,
+      mode = current_action.mode or { "n", "i" },
+    }
   end
 
   win = Snacks.win({
@@ -141,33 +204,7 @@ function M.review(opts, on_confirm)
       breakindent = true,
       spell = false,
     },
-    keys = {
-      q = false,
-      submit = {
-        "<c-s>",
-        function(self)
-          finish(vim.trim(self:text()))
-        end,
-        desc = "Submit",
-        mode = { "n", "i" },
-      },
-      cancel = {
-        "q",
-        function()
-          finish(nil)
-        end,
-        desc = "Cancel",
-        mode = "n",
-      },
-      cancel_ctrl = {
-        "<c-c>",
-        function()
-          finish(nil)
-        end,
-        desc = "Cancel",
-        mode = "i",
-      },
-    },
+    keys = keys,
     on_win = function()
       local current = win
       if not current or not current.buf then
@@ -190,7 +227,12 @@ function M.review(opts, on_confirm)
         end,
       })
       vim.schedule(function()
-        vim.cmd.startinsert()
+        if opts.default and opts.default ~= "" then
+          -- Prefilled edits should resume after the final character, not before it.
+          vim.cmd("startinsert!")
+        else
+          vim.cmd.startinsert()
+        end
       end)
     end,
     on_close = function()

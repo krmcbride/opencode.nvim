@@ -35,6 +35,11 @@ local session = require("opencode.session")
 ---@field model? opencode.ModelRef
 ---@field variant? string
 
+---@class opencode.review.SendOpts
+---@field success_message? string
+---@field on_success? fun()
+---@field on_error? fun(err: string)
+
 ---@class opencode.review.LineRange
 ---@field start_line integer
 ---@field end_line integer
@@ -241,15 +246,27 @@ end
 ---@param current opencode.ActiveReviewSession
 ---@param parts table[]
 ---@param prompt_opts? opencode.PromptAsyncOpts
-local function send_review(current, parts, prompt_opts)
+---@param send_opts? opencode.review.SendOpts
+local function send_review(current, parts, prompt_opts, send_opts)
+  send_opts = send_opts or {}
   client.prompt_async(current.session_id, parts, prompt_opts, function(err)
     if err then
       vim.notify(err, vim.log.levels.ERROR, { title = "opencode" })
+      if send_opts.on_error then
+        send_opts.on_error(err)
+      end
       return
     end
 
-    vim.notify("Sent review to active OpenCode session", vim.log.levels.INFO, { title = "opencode" })
+    vim.notify(
+      send_opts.success_message or "Sent review to active OpenCode session",
+      vim.log.levels.INFO,
+      { title = "opencode" }
+    )
     client.ensure_subscribed(true)
+    if send_opts.on_success then
+      send_opts.on_success()
+    end
   end)
 end
 
@@ -259,10 +276,11 @@ end
 ---active session and directory.
 ---@param current opencode.ActiveReviewSession
 ---@param parts table[]
-local function send_with_recent_context(current, parts)
+---@param send_opts? opencode.review.SendOpts
+local function send_with_recent_context(current, parts, send_opts)
   client.session_messages(current.session_id, { directory = current.cwd, limit = 100 }, function(err, response)
     if err or type(response) ~= "table" then
-      send_review(current, parts, { directory = current.cwd })
+      send_review(current, parts, { directory = current.cwd }, send_opts)
       return
     end
 
@@ -273,8 +291,28 @@ local function send_with_recent_context(current, parts)
       agent = last_user and last_user.agent or nil,
       model = last_user and last_user.model or nil,
       variant = last_user and last_user.variant or nil,
-    })
+    }, send_opts)
   end)
+end
+
+M.current_selection_or_line = current_selection_or_line
+M.visual_selection = visual_selection
+M.file_url = file_url
+M.display_name = display_name
+M.review_title = review_title
+M.review_parts = review_parts
+
+---@param parts table[]
+---@param send_opts? opencode.review.SendOpts
+---@return boolean started
+function M.send_parts(parts, send_opts)
+  local current = active_session()
+  if not current then
+    return false
+  end
+
+  send_with_recent_context(current, parts, send_opts)
+  return true
 end
 
 -- Public review entrypoints.
@@ -285,7 +323,23 @@ function M.prompt_for_selection(selection)
   input.review({
     prompt = "Review message: ",
     title = review_title(selection),
-  }, function(value)
+    actions = {
+      {
+        name = "queue",
+        key = "<c-s>",
+        key_label = "Ctrl-S",
+        label = "Queue",
+        mode = { "n", "i" },
+      },
+      {
+        name = "send",
+        key = "<c-cr>",
+        key_label = "Ctrl-Enter",
+        label = "Send",
+        mode = { "n", "i" },
+      },
+    },
+  }, function(value, action)
     if value == nil then
       return
     end
@@ -296,12 +350,12 @@ function M.prompt_for_selection(selection)
       return
     end
 
-    local current = active_session()
-    if not current then
+    if action == "queue" then
+      require("opencode.review_queue").queue_selection(selection, message)
       return
     end
 
-    send_with_recent_context(current, review_parts(selection, message))
+    M.send_parts(review_parts(selection, message))
   end)
 end
 

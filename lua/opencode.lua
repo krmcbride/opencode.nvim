@@ -13,6 +13,7 @@ local context = require("opencode.context")
 local editor_context = require("opencode.editor_context")
 local input = require("opencode.input")
 local review = require("opencode.review")
+local review_queue = require("opencode.review_queue")
 local session = require("opencode.session")
 local terminal = require("opencode.terminal")
 
@@ -233,6 +234,43 @@ end
 ---file attachment. Prefer this for explicit visual-mode mappings.
 function M.review_visual_selection()
   review.review_visual_selection()
+end
+
+---Prompt for a review message and queue the current line or active visual
+---selection without sending it to the backend.
+function M.queue_review_selection()
+  review_queue.queue_review_selection()
+end
+
+---Prompt for a review message and queue the persisted visual marks without
+---sending them to the backend. Prefer this for explicit visual-mode mappings.
+function M.queue_review_visual_selection()
+  review_queue.queue_review_visual_selection()
+end
+
+---Open the review queue quickfix projection.
+function M.open_review_queue()
+  review_queue.open_quickfix()
+end
+
+---Send all queued review comments as one backend prompt request.
+function M.send_review_queue()
+  review_queue.send()
+end
+
+---Clear all queued review comments and refresh the quickfix projection.
+function M.clear_review_queue()
+  local count = review_queue.count()
+  review_queue.clear()
+  review_queue.refresh_quickfix()
+  vim.notify(("Cleared %d queued review comment%s"):format(count, count == 1 and "" or "s"), vim.log.levels.INFO, {
+    title = "opencode",
+  })
+end
+
+---@return integer
+function M.review_queue_count()
+  return review_queue.count()
 end
 
 ---Show current terminal, backend, bridge, and SSE status.
