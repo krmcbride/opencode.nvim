@@ -89,6 +89,7 @@ end
 ---@class opencode.TerminalLaunchOpts
 ---@field focus? boolean After open: focus the window and enter Terminal mode (not Normal over the split)
 ---@field continue? boolean Override `opts.terminal.continue` for this launch when no explicit session target is set.
+---@field layout? "split"|"tab" Override `opts.terminal.layout` for this launch.
 
 ---Start the opencode terminal.
 ---@param opts? opencode.TerminalLaunchOpts

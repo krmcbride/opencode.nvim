@@ -33,6 +33,7 @@ A Neovim plugin for running a local [opencode](https://github.com/anomalyco/open
       url = "http://127.0.0.1:4096",
     },
     terminal = {
+      layout = "split",
       width = 0.43,
       env = {
         -- Extra environment for the child `opencode attach` process
@@ -50,6 +51,7 @@ A Neovim plugin for running a local [opencode](https://github.com/anomalyco/open
   keys = {
     { "<leader>ac", function() require("opencode").start({ focus = true, continue = true }) end, mode = { "n", "t" }, desc = "Continue opencode" },
     { "<leader>an", function() require("opencode").start({ focus = true, continue = false }) end, mode = { "n", "t" }, desc = "New opencode session" },
+    { "<leader>at", function() require("opencode").start({ focus = true, continue = true, layout = "tab" }) end, mode = { "n", "t" }, desc = "Open opencode tab" },
     { "<leader>aa", function() require("opencode").mention_selection({ focus = true }) end, mode = { "n", "x" }, desc = "Native mention selection" },
     { "<leader>aA", function() require("opencode").prompt("@this", { focus = true }) end, mode = { "n", "x" }, desc = "Append selection to prompt" },
     { "<leader>ab", function() require("opencode").prompt("@buffer", { focus = true }) end, desc = "Add buffer to prompt" },
@@ -83,6 +85,7 @@ require("opencode").setup({
     cmd = nil,                -- Optional custom attach command
     dir = ".",               -- Directory passed to `opencode attach`
     continue = true,          -- Default launch behavior; `start` can override per call
+    layout = "split",         -- "split" for a right pane, "tab" for a dedicated Neovim tab
     width = 0.35,
     env = nil,
   },
@@ -122,6 +125,7 @@ require("opencode").start({ focus = true })  -- Start and focus if a new termina
 require("opencode").start({ continue = true, focus = true }) -- Open with `--continue`, no-op if already open
 require("opencode").start({ continue = false }) -- Open without `--continue`, no-op if already open
 require("opencode").start({ continue = false, focus = true }) -- Open without `--continue`, no-op if already open
+require("opencode").start({ layout = "tab", focus = true }) -- Open in a dedicated Neovim tab
 require("opencode").attach_session("ses_...") -- Attach directly to a specific session id
 require("opencode").attach_session_prompt()   -- Prompt for a session id, then attach
 require("opencode").status()                 -- Show terminal, backend, bridge, and SSE status

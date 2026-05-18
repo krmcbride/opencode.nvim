@@ -16,6 +16,7 @@ local M = {}
 ---@field cmd? string Command to run (defaults to generated `opencode attach ...` command)
 ---@field dir? string Directory argument passed to `opencode attach`
 ---@field continue? boolean Default `--continue` behavior for terminal launches (default: true)
+---@field layout? "split"|"tab" Terminal placement for launches (default: "split")
 ---@field width? number Terminal window width passed to snacks.win.width
 ---@field env? table<string, string|number|boolean> Environment variables for the opencode process
 
@@ -35,6 +36,7 @@ local defaults = {
     cmd = nil,
     dir = ".",
     continue = true,
+    layout = "split",
     width = 0.35,
     env = nil,
   },

@@ -326,7 +326,7 @@ end
 
 ---Default snacks.nvim terminal options for the embedded opencode TUI.
 ---
----Per-launch values like width and environment are merged in later.
+---Per-launch values like layout, width, and environment are merged in later.
 local DEFAULT_SNACKS_OPTS = {
   auto_close = true,
   start_insert = true,
@@ -349,6 +349,14 @@ local DEFAULT_SNACKS_OPTS = {
     bo = { filetype = TERMINAL_FILETYPE },
   },
 }
+
+---@param launch_opts? opencode.TerminalLaunchOpts
+---@return "split"|"tab"
+local function terminal_layout(launch_opts)
+  local terminal = config.opts.terminal or {}
+  local layout = launch_opts and launch_opts.layout or terminal.layout
+  return layout == "tab" and "tab" or "split"
+end
 
 ---Normalize an env map for `jobstart`/`termopen` consumption.
 ---
@@ -476,7 +484,14 @@ local function get_opts(target, launch_opts, opts)
   ---@type table
   local snacks_opts = vim.deepcopy(DEFAULT_SNACKS_OPTS)
 
-  snacks_opts.win.width = terminal.width
+  if terminal_layout(launch_opts) == "tab" then
+    snacks_opts.win.position = "current"
+    snacks_opts.win.enter = true
+    snacks_opts.win.width = 0
+    snacks_opts.win.height = 0
+  else
+    snacks_opts.win.width = terminal.width
+  end
   snacks_opts.env = get_env(opts)
 
   return get_cmd(target, launch_opts), snacks_opts
@@ -654,6 +669,9 @@ function M.start(launch_opts)
   end
 
   local cmd, snacks_opts = get_opts(current_target(), launch_opts)
+  if terminal_layout(launch_opts) == "tab" then
+    vim.cmd.tabnew()
+  end
   state.terminal = snacks_terminal.open(cmd, snacks_opts)
   remember_terminal_buf(state.terminal)
   return true
