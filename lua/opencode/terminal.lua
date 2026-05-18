@@ -29,6 +29,11 @@ local state = {
   warned_claude_editor_port = false,
 }
 
+-- Transiently mark line ranges opened from terminal file references without
+-- leaving the editor in Visual mode.
+local range_ns = vim.api.nvim_create_namespace("OpencodeFileReferenceRange")
+vim.api.nvim_set_hl(0, "OpencodeFileReferenceRange", { link = "Visual", default = true })
+
 ---@param terminal opencode.TerminalHandle|nil
 local function remember_terminal_buf(terminal)
   if not terminal then
@@ -150,16 +155,36 @@ end
 ---@param text string|nil
 ---@return string file
 ---@return integer|nil line
+---@return integer|nil end_line
 local function split_file_reference(text)
   local token = clean_file_token(text)
   if token == "" then
-    return "", nil
+    return "", nil, nil
+  end
+
+  local range_patterns = {
+    "^(.-)#(%d+)%-(%d+)$",
+    "^(.-):(%d+)%-(%d+)$",
+  }
+
+  for _, pattern in ipairs(range_patterns) do
+    local file, start_line, end_line = token:match(pattern)
+    if file and file ~= "" then
+      start_line = tonumber(start_line)
+      end_line = tonumber(end_line)
+      if start_line and end_line then
+        if start_line > end_line then
+          start_line, end_line = end_line, start_line
+        end
+        return clean_file_token(file), start_line, end_line
+      end
+    end
   end
 
   local patterns = {
-    "^(.-)#(%d+)%-?%d*$",
     "^(.-):(%d+):%d+.*$",
-    "^(.-):(%d+)%-?%d*$",
+    "^(.-)#(%d+)$",
+    "^(.-):(%d+)$",
     "^(.-)%s+[Ll]ine%s+(%d+)$",
     "^(.-)%s*@%s*(%d+)$",
     "^(.-)%s*%(%s*(%d+)%s*%)$",
@@ -169,11 +194,42 @@ local function split_file_reference(text)
   for _, pattern in ipairs(patterns) do
     local file, line = token:match(pattern)
     if file and file ~= "" then
-      return clean_file_token(file), tonumber(line)
+      return clean_file_token(file), tonumber(line), nil
     end
   end
 
-  return token, nil
+  return token, nil, nil
+end
+
+---@param buf integer
+---@param start_line integer|nil
+---@param end_line integer|nil
+local function flash_line_range(buf, start_line, end_line)
+  if not (start_line and end_line) or end_line <= start_line then
+    return
+  end
+
+  if not vim.api.nvim_buf_is_valid(buf) then
+    return
+  end
+
+  local last = math.max(vim.api.nvim_buf_line_count(buf), 1)
+  start_line = math.max(1, math.min(start_line, last))
+  end_line = math.max(start_line, math.min(end_line, last))
+
+  vim.api.nvim_buf_clear_namespace(buf, range_ns, 0, -1)
+  vim.api.nvim_buf_set_extmark(buf, range_ns, start_line - 1, 0, {
+    end_row = end_line,
+    end_col = 0,
+    hl_group = "OpencodeFileReferenceRange",
+    hl_eol = true,
+  })
+
+  vim.defer_fn(function()
+    if vim.api.nvim_buf_is_valid(buf) then
+      vim.api.nvim_buf_clear_namespace(buf, range_ns, 0, -1)
+    end
+  end, 700)
 end
 
 ---Return directories to try when resolving relative terminal references.
@@ -363,10 +419,10 @@ end
 ---@param terminal opencode.TerminalHandle
 ---@param with_line boolean
 local function open_file_under_cursor(terminal, with_line)
-  local file, line = split_file_reference(vim.fn.expand("<cfile>"))
+  local file, line, end_line = split_file_reference(vim.fn.expand("<cfile>"))
   local target = resolve_file(file)
   if not target then
-    file, line = split_file_reference(vim.fn.expand("<cWORD>"))
+    file, line, end_line = split_file_reference(vim.fn.expand("<cWORD>"))
     target = resolve_file(file)
   end
 
@@ -376,12 +432,13 @@ local function open_file_under_cursor(terminal, with_line)
   end
 
   if with_line and not line then
-    local word_file, word_line = split_file_reference(vim.fn.expand("<cWORD>"))
+    local word_file, word_line, word_end_line = split_file_reference(vim.fn.expand("<cWORD>"))
     if clean_file_token(word_file) == clean_file_token(file) then
       line = word_line
+      end_line = word_end_line
     end
   end
-  line = with_line and line or nil
+  line, end_line = with_line and line or nil, with_line and end_line or nil
 
   local win = find_edit_window(terminal.win)
   if not win then
@@ -394,6 +451,7 @@ local function open_file_under_cursor(terminal, with_line)
   if line then
     local last = math.max(vim.api.nvim_buf_line_count(0), 1)
     pcall(vim.api.nvim_win_set_cursor, 0, { math.min(line, last), 0 })
+    flash_line_range(vim.api.nvim_get_current_buf(), line, end_line)
   end
   vim.cmd.stopinsert()
 end

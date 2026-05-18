@@ -131,6 +131,18 @@ require("opencode").attach_session_prompt()   -- Prompt for a session id, then a
 require("opencode").status()                 -- Show terminal, backend, bridge, and SSE status
 ```
 
+The embedded terminal maps `gf` and `gF` over file references in OpenCode output.
+`gF` jumps to the referenced line, and line ranges such as `path#10-20` or
+`path:10-20` briefly highlight the referenced range. The range flash uses the
+`OpencodeFileReferenceRange` highlight group, which defaults to `Visual` and can
+be overridden from your Neovim config:
+
+```lua
+vim.api.nvim_set_hl(0, "OpencodeFileReferenceRange", {
+  bg = "#3b4261",
+})
+```
+
 ### Prompts
 
 ```lua
