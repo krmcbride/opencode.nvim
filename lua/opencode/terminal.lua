@@ -22,6 +22,8 @@ local snacks_terminal = require("snacks.terminal")
 local state = {
   ---@type opencode.TerminalHandle|nil
   terminal = nil,
+  ---@type integer|nil
+  last_edit_win = nil,
   ---@type table<integer, true>
   buffers = {},
   warned_claude_editor_port = false,
@@ -245,37 +247,109 @@ end
 ---
 ---The terminal window itself must not be used: temporarily replacing its buffer
 ---is what caused Snacks/OpenTUI rendering to shift after native `gf`. Prefer
----the previous normal-buffer window, then any non-floating normal-buffer window
----in the tab. If Neovim is still on a dashboard/home screen, there may not be a
----normal buffer yet, so fall back to the previous non-floating window and let
----`:edit` replace that startup buffer.
+---the previous or remembered normal-buffer window, then a normal-buffer window
+---in the current tab, then the most recently used normal-buffer window across
+---all tabs. If Neovim is still on a dashboard/home screen, there may not be a
+---normal buffer yet, so fall back to a non-terminal window and let `:edit`
+---replace that startup buffer.
 ---@param exclude_win integer|nil
 ---@return integer|nil
 local function find_edit_window(exclude_win)
-  local previous = vim.fn.win_getid(vim.fn.winnr("#"))
-  if previous ~= 0 and previous ~= exclude_win and vim.api.nvim_win_is_valid(previous) then
-    local previous_buf = vim.api.nvim_win_get_buf(previous)
-    if vim.api.nvim_win_get_config(previous).zindex == nil and vim.bo[previous_buf].buftype == "" then
-      return previous
+  ---@param win integer|nil
+  ---@return boolean
+  local function is_edit_window(win)
+    if not win or win == exclude_win or not vim.api.nvim_win_is_valid(win) then
+      return false
     end
+
+    if vim.api.nvim_win_get_config(win).zindex ~= nil then
+      return false
+    end
+
+    local buf = vim.api.nvim_win_get_buf(win)
+    return vim.bo[buf].buftype == ""
+  end
+
+  ---@param win integer|nil
+  ---@return boolean
+  local function is_fallback_window(win)
+    if not win or win == exclude_win or not vim.api.nvim_win_is_valid(win) then
+      return false
+    end
+
+    if vim.api.nvim_win_get_config(win).zindex ~= nil then
+      return false
+    end
+
+    local buf = vim.api.nvim_win_get_buf(win)
+    return vim.bo[buf].buftype ~= "terminal"
+  end
+
+  local previous = vim.fn.win_getid(vim.fn.winnr("#"))
+  if is_edit_window(previous) then
+    return previous
+  end
+
+  if is_edit_window(state.last_edit_win) then
+    return state.last_edit_win
   end
 
   for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
-    if win ~= exclude_win and vim.api.nvim_win_get_config(win).zindex == nil then
+    if is_edit_window(win) then
+      return win
+    end
+  end
+
+  local best_win
+  local best_last_used = 0
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    if is_edit_window(win) then
       local buf = vim.api.nvim_win_get_buf(win)
-      if vim.bo[buf].buftype == "" then
-        return win
+      local info = vim.fn.getbufinfo(buf)[1]
+      local last_used = info and info.lastused or 0
+      if not best_win or last_used > best_last_used then
+        best_win = win
+        best_last_used = last_used
       end
     end
   end
 
-  if previous ~= 0 and previous ~= exclude_win and vim.api.nvim_win_is_valid(previous) then
-    if vim.api.nvim_win_get_config(previous).zindex == nil then
-      return previous
+  if best_win then
+    return best_win
+  end
+
+  if is_fallback_window(previous) then
+    return previous
+  end
+
+  if is_fallback_window(state.last_edit_win) then
+    return state.last_edit_win
+  end
+
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    if is_fallback_window(win) then
+      return win
     end
   end
 
   return nil
+end
+
+---Remember the current normal editing window as a future cross-tab file target.
+function M.remember_current_edit_window()
+  local win = vim.api.nvim_get_current_win()
+  if win == 0 or not vim.api.nvim_win_is_valid(win) then
+    return
+  end
+
+  if vim.api.nvim_win_get_config(win).zindex ~= nil then
+    return
+  end
+
+  local buf = vim.api.nvim_win_get_buf(win)
+  if vim.bo[buf].buftype == "" then
+    state.last_edit_win = win
+  end
 end
 
 ---Open the file reference under the terminal cursor from a normal edit window.
@@ -668,6 +742,7 @@ function M.start(launch_opts)
     return false
   end
 
+  M.remember_current_edit_window()
   local cmd, snacks_opts = get_opts(current_target(), launch_opts)
   if terminal_layout(launch_opts) == "tab" then
     vim.cmd.tabnew()

@@ -53,6 +53,7 @@ end
 ---   comment on `send_terminal_ctrl_e`).
 local function focus_terminal(opts)
   opts = opts or {}
+  terminal.remember_current_edit_window()
   vim.schedule(function()
     local current = terminal.get()
     if not (current and current.win and vim.api.nvim_win_is_valid(current.win)) then
