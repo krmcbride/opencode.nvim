@@ -8,6 +8,7 @@ local M = {}
 ---@field auto_reload? boolean Reload buffers on file.edited (default: true)
 ---@field terminal? opencode.TerminalConfig
 ---@field editor_context? opencode.EditorContextConfig
+---@field review_queue? opencode.ReviewQueueConfig
 
 ---@class opencode.ServerConfig
 ---@field url? string Backend URL for API and attach mode
@@ -23,6 +24,15 @@ local M = {}
 ---@class opencode.EditorContextConfig
 ---@field enabled? boolean Enable native OpenCode editor context over WebSocket (default: true)
 
+---@class opencode.ReviewQueueConfig
+---@field signs? opencode.ReviewQueueSignsConfig
+
+---@class opencode.ReviewQueueSignsConfig
+---@field enabled? boolean Show sign-column markers for queued review comments (default: true)
+---@field text? string Sign-column text for queued review comments (default: "󰅺")
+---@field hl? string Sign-column highlight group (default: "OpencodeReviewQueueSign")
+---@field priority? integer Sign priority (default: 20)
+
 ---@type opencode.Opts
 local defaults = {
   server = {
@@ -31,6 +41,14 @@ local defaults = {
   auto_reload = true,
   editor_context = {
     enabled = true,
+  },
+  review_queue = {
+    signs = {
+      enabled = true,
+      text = "󰅺",
+      hl = "OpencodeReviewQueueSign",
+      priority = 20,
+    },
   },
   terminal = {
     cmd = nil,

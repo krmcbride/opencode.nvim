@@ -21,7 +21,9 @@ local terminal = require("opencode.terminal")
 ---@param opts? opencode.Opts
 ---@return opencode.Opts
 function M.setup(opts)
-  return config.setup(opts)
+  local resolved = config.setup(opts)
+  review_queue.refresh_signs()
+  return resolved
 end
 
 ---Move the TUI input cursor to end-of-line by sending Ctrl-E on the PTY.
@@ -253,6 +255,16 @@ end
 ---Open the review queue quickfix projection.
 function M.open_review_queue()
   review_queue.open_quickfix()
+end
+
+---Edit the queued review comment whose sign is on the current cursor line.
+function M.edit_review_queue_comment()
+  review_queue.edit_current_line_comment()
+end
+
+---Delete the queued review comment whose sign is on the current cursor line.
+function M.delete_review_queue_comment()
+  review_queue.delete_current_line_comment()
 end
 
 ---Send all queued review comments as one backend prompt request.

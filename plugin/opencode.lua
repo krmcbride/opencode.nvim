@@ -8,6 +8,7 @@
 local client = require("opencode.client")
 local config = require("opencode.config")
 local opencode = require("opencode")
+local review_queue = require("opencode.review_queue")
 local terminal = require("opencode.terminal")
 
 local augroup = vim.api.nvim_create_augroup("Opencode", { clear = true })
@@ -189,6 +190,20 @@ vim.api.nvim_create_autocmd("User", {
   desc = "Keep opencode SSE subscription aligned with active session directory",
 })
 
+-- Repaint queued review gutter marks when matching buffers are loaded or shown.
+vim.api.nvim_create_autocmd({ "BufReadPost", "BufWinEnter", "BufEnter" }, {
+  group = augroup,
+  ---@param ev vim.api.keyset.create_autocmd.callback_args
+  callback = function(ev)
+    vim.schedule(function()
+      if vim.api.nvim_buf_is_valid(ev.buf) then
+        review_queue.refresh_signs(ev.buf)
+      end
+    end)
+  end,
+  desc = "Refresh opencode review queue signs",
+})
+
 -- Minimal user-command surface for plugin-wide status and diagnostics.
 local commands = {
   status = function()
@@ -196,6 +211,12 @@ local commands = {
   end,
   ["review-queue-open"] = function()
     opencode.open_review_queue()
+  end,
+  ["review-queue-edit"] = function()
+    opencode.edit_review_queue_comment()
+  end,
+  ["review-queue-delete"] = function()
+    opencode.delete_review_queue_comment()
   end,
   ["review-queue-send"] = function()
     opencode.send_review_queue()

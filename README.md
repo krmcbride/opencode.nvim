@@ -60,6 +60,8 @@ A Neovim plugin for running a local [opencode](https://github.com/anomalyco/open
     { "<leader>av", function() require("opencode").review_selection() end, mode = "n", desc = "Review line" },
     { "<leader>av", function() require("opencode").review_visual_selection() end, mode = "x", desc = "Review selection" },
     { "<leader>ao", function() require("opencode").open_review_queue() end, desc = "Open review queue" },
+    { "<leader>ae", function() require("opencode").edit_review_queue_comment() end, desc = "Edit queued review comment" },
+    { "<leader>aD", function() require("opencode").delete_review_queue_comment() end, desc = "Delete queued review comment" },
     { "<leader>ap", function() require("opencode").send_review_queue() end, desc = "Send review queue" },
     { "<leader>aP", function() require("opencode").clear_review_queue() end, desc = "Clear review queue" },
   },
@@ -80,6 +82,14 @@ require("opencode").setup({
   auto_reload = true,          -- Reload matching buffers on OpenCode edit events
   editor_context = {
     enabled = true,            -- Share active Neovim file/selection with the embedded OpenCode TUI
+  },
+  review_queue = {
+    signs = {
+      enabled = true,          -- Show sign-column markers for queued review comments
+      text = "󰅺",              -- Sign text; override with another glyph if desired
+      hl = "OpencodeReviewQueueSign",
+      priority = 20,
+    },
   },
   terminal = {
     cmd = nil,                -- Optional custom attach command
@@ -207,6 +217,8 @@ require("opencode").queue_review_visual_selection()
 
 -- Inspect, send, or clear the queued comments.
 require("opencode").open_review_queue()
+require("opencode").edit_review_queue_comment()
+require("opencode").delete_review_queue_comment()
 require("opencode").send_review_queue()
 require("opencode").clear_review_queue()
 require("opencode").review_queue_count()
@@ -227,9 +239,11 @@ The review popup is a small cursor-anchored editor float:
 
 Direct review sends reuse the last persisted user message's `agent`, `model`, and `variant` when available, so they generally match the active session's existing model choice without requiring OpenCode core changes.
 
-Queued reviews use the same popup and selection behavior. The queue is process-local and is not persisted across Neovim restarts. Quickfix is only a projection for navigation and source previews; the plugin keeps the actual queue state internally. bqf is optional, but it makes the quickfix queue easier to browse. For loaded buffers, queued ranges are tracked with Neovim extmarks so quickfix and sends follow line shifts from edits above the queued range; if those marks are unavailable, the plugin falls back to the originally queued line numbers.
+Queued reviews use the same popup and selection behavior. The queue is process-local and is not persisted across Neovim restarts. Quickfix is only a projection for navigation and source previews; the plugin keeps the actual queue state internally. bqf is optional, but it makes the quickfix queue easier to browse. Loaded buffers also show a sign-column marker on lines with queued comments. For loaded buffers, queued ranges are tracked with Neovim extmarks so quickfix, signs, and sends follow line shifts from edits above the queued range; if those marks are unavailable, the plugin falls back to the originally queued line numbers.
 
-Opening the queue with `open_review_queue()` or `:Opencode review-queue-open` refreshes quickfix with one item per queued comment and a flattened one-line summary for multiline comments. Press `e` in that quickfix list to reopen the selected queued comment in the editor popup, anchored on the queued source location when that file is visible. Sending the queue uses one direct `prompt_async` request with one ordered text part and one ranged file attachment per queued item. The queue is cleared only after the backend send succeeds; failed sends leave queued comments intact.
+The queue sign defaults to `󰅺` using the `OpencodeReviewQueueSign` highlight group, which links to `DiagnosticWarn` by default. The default marker is a Nerd Font glyph; if your font does not render it, override `review_queue.signs.text` with `O`, `◉`, or another sign-column glyph.
+
+Opening the queue with `open_review_queue()` or `:Opencode review-queue-open` refreshes quickfix with one item per queued comment and a flattened one-line summary for multiline comments. Press `e` in that quickfix list to reopen the selected queued comment in the editor popup, anchored on the queued source location when that file is visible. From a source buffer, `edit_review_queue_comment()` edits the queued comment whose sign is on the current cursor line, and `delete_review_queue_comment()` prompts before deleting that current-line comment. Sending the queue uses one direct `prompt_async` request with one ordered text part and one ranged file attachment per queued item. The queue is cleared only after the backend send succeeds; failed sends leave queued comments intact.
 
 ## User Commands
 
@@ -237,6 +251,8 @@ Opening the queue with `open_review_queue()` or `:Opencode review-queue-open` re
 | -------------------------------- | --------------------------------------- |
 | `:Opencode status` | Show terminal, backend, bridge, and SSE status |
 | `:Opencode review-queue-open` | Open the review queue quickfix projection |
+| `:Opencode review-queue-edit` | Edit the queued comment on the current cursor line |
+| `:Opencode review-queue-delete` | Delete the queued comment on the current cursor line after confirmation |
 | `:Opencode review-queue-send` | Send queued review comments to the active session |
 | `:Opencode review-queue-clear` | Clear queued review comments |
 

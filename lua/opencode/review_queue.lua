@@ -3,6 +3,7 @@
 ---The queue is process-local state. Quickfix is only a projection used for
 ---navigation and bqf previews; queue items are never read back from quickfix.
 local M = {}
+local config = require("opencode.config")
 local input = require("opencode.input")
 local review = require("opencode.review")
 
@@ -26,6 +27,10 @@ local review = require("opencode.review")
 
 local qf_title = "opencode review queue"
 local extmark_ns = vim.api.nvim_create_namespace("opencode_review_queue")
+local sign_ns = vim.api.nvim_create_namespace("opencode_review_queue_signs")
+local default_sign_hl = "OpencodeReviewQueueSign"
+
+pcall(vim.api.nvim_set_hl, 0, default_sign_hl, { link = "DiagnosticWarn", default = true })
 
 ---@type opencode.review_queue.Item[]
 local queue = {}
@@ -83,6 +88,48 @@ local function loaded_selection_buffer(selection)
   end
 
   return nil
+end
+
+---@param path string
+---@return integer[]
+local function loaded_file_buffers(path)
+  local target = normalize_path(path)
+  ---@type integer[]
+  local buffers = {}
+  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_is_loaded(buf) then
+      local name = vim.api.nvim_buf_get_name(buf)
+      if name ~= "" and normalize_path(name) == target then
+        table.insert(buffers, buf)
+      end
+    end
+  end
+
+  return buffers
+end
+
+---@return opencode.ReviewQueueSignsConfig|nil
+local function sign_config()
+  local review_queue = config.opts.review_queue or {}
+  local signs = review_queue.signs or {}
+  if signs.enabled == false then
+    return nil
+  end
+
+  return {
+    enabled = true,
+    text = signs.text or "󰅺",
+    hl = signs.hl or default_sign_hl,
+    priority = signs.priority or 20,
+  }
+end
+
+---@param buf integer
+---@return boolean
+local function is_file_buffer(buf)
+  return vim.api.nvim_buf_is_loaded(buf)
+    and vim.api.nvim_buf_get_name(buf) ~= ""
+    and vim.api.nvim_get_option_value("buftype", { buf = buf }) == ""
 end
 
 ---@param selection opencode.ReviewSelection|opencode.review_queue.Selection
@@ -286,6 +333,7 @@ function M.add(selection, message)
   next_id = next_id + 1
 
   table.insert(queue, item)
+  M.refresh_signs()
   return copy_item(item), nil
 end
 
@@ -329,6 +377,7 @@ function M.clear()
     delete_extmarks(item)
   end
   queue = {}
+  M.refresh_signs()
 end
 
 ---@param id integer
@@ -349,10 +398,58 @@ function M.remove(id)
     if item.id == id then
       delete_extmarks(item)
       table.remove(queue, index)
+      M.refresh_signs()
       return true
     end
   end
   return false
+end
+
+-- Sign-column projection ------------------------------------------------------
+
+---@param buf? integer
+function M.refresh_signs(buf)
+  local signs = sign_config()
+  local buffers = {}
+  if buf then
+    if vim.api.nvim_buf_is_valid(buf) and vim.api.nvim_buf_is_loaded(buf) then
+      table.insert(buffers, buf)
+    end
+  else
+    buffers = vim.api.nvim_list_bufs()
+  end
+
+  for _, current_buf in ipairs(buffers) do
+    if vim.api.nvim_buf_is_valid(current_buf) and vim.api.nvim_buf_is_loaded(current_buf) then
+      vim.api.nvim_buf_clear_namespace(current_buf, sign_ns, 0, -1)
+    end
+  end
+
+  if not signs then
+    return
+  end
+
+  ---@type table<integer, table<integer, true>>
+  local marked = {}
+  for _, item in ipairs(queue) do
+    local selection = resolved_selection(item)
+    for _, current_buf in ipairs(loaded_file_buffers(selection.path)) do
+      if (not buf or current_buf == buf) and is_file_buffer(current_buf) then
+        local line_count = vim.api.nvim_buf_line_count(current_buf)
+        local row = clamp(selection.start_line, 1, line_count) - 1
+        marked[current_buf] = marked[current_buf] or {}
+        if not marked[current_buf][row] then
+          marked[current_buf][row] = true
+          vim.api.nvim_buf_set_extmark(current_buf, sign_ns, row, 0, {
+            sign_text = signs.text,
+            sign_hl_group = signs.hl,
+            priority = signs.priority,
+            right_gravity = false,
+          })
+        end
+      end
+    end
+  end
 end
 
 -- Quickfix interaction --------------------------------------------------------
@@ -473,6 +570,61 @@ function M.edit_current_quickfix_item()
   end
 
   M.prompt_for_item_edit(item)
+end
+
+---@return opencode.review_queue.Item|nil
+local function current_line_item()
+  local buf = vim.api.nvim_get_current_buf()
+  if not is_file_buffer(buf) then
+    return nil
+  end
+
+  local path = normalize_path(vim.api.nvim_buf_get_name(buf))
+  local line = vim.api.nvim_win_get_cursor(0)[1]
+  for _, item in ipairs(queue) do
+    local selection = resolved_selection(item)
+    if normalize_path(selection.path) == path and selection.start_line == line then
+      return copy_item(item)
+    end
+  end
+
+  return nil
+end
+
+function M.edit_current_line_comment()
+  local item = current_line_item()
+  if not item then
+    vim.notify("No queued review comment on the current line", vim.log.levels.WARN, { title = "opencode" })
+    return
+  end
+
+  M.prompt_for_item_edit(item)
+end
+
+function M.delete_current_line_comment()
+  local item = current_line_item()
+  if not item then
+    vim.notify("No queued review comment on the current line", vim.log.levels.WARN, { title = "opencode" })
+    return
+  end
+
+  vim.ui.select({ "Delete", "Cancel" }, {
+    prompt = "Delete queued review comment for " .. item.display_name .. "?",
+  }, function(choice)
+    if choice ~= "Delete" then
+      return
+    end
+
+    if not M.remove(item.id) then
+      vim.notify("Queued review comment not found", vim.log.levels.WARN, { title = "opencode" })
+      M.refresh_quickfix()
+      return
+    end
+
+    M.refresh_quickfix()
+    M.install_quickfix_mappings()
+    vim.notify("Deleted queued review comment", vim.log.levels.INFO, { title = "opencode" })
+  end)
 end
 
 function M.install_quickfix_mappings()
