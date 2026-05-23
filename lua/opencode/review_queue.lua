@@ -280,13 +280,33 @@ end
 ---@param items opencode.review_queue.Item[]
 ---@return table[]
 local function build_parts(items)
-  local text = { "Review the following comments:" }
+  if #items == 1 then
+    local item = items[1]
+    return {
+      {
+        type = "text",
+        text = item.message,
+      },
+      {
+        type = "file",
+        mime = "text/plain",
+        filename = item.display_name,
+        url = review.file_url(item.selection.path, item.selection.start_line, item.selection.end_line),
+      },
+    }
+  end
+
+  local text = { "I reviewed the code and have the following feedback:" }
 
   for index, item in ipairs(items) do
-    table.insert(
-      text,
-      ("Comment %d/%d for %s\n%s"):format(index, #items, text_display_name(item.selection), item.message)
+    local comment_text = ("My comment %d/%d on %s:\n%s"):format(
+      index,
+      #items,
+      text_display_name(item.selection),
+      item.message
     )
+
+    table.insert(text, comment_text)
   end
 
   ---@type table[]
@@ -309,6 +329,18 @@ local function build_parts(items)
   return parts
 end
 
+---@param message string
+---@return string|nil trimmed
+---@return string|nil err
+local function validate_message(message)
+  local trimmed = vim.trim(message or "")
+  if trimmed == "" then
+    return nil, "Review message is required"
+  end
+
+  return trimmed, nil
+end
+
 -- Queue state API -------------------------------------------------------------
 
 ---@param selection opencode.ReviewSelection|opencode.review_queue.Selection
@@ -316,9 +348,9 @@ end
 ---@return opencode.review_queue.Item|nil item
 ---@return string|nil err
 function M.add(selection, message)
-  local trimmed = vim.trim(message or "")
-  if trimmed == "" then
-    return nil, "Review message is required"
+  local trimmed, err = validate_message(message)
+  if err or not trimmed then
+    return nil, err
   end
 
   local normalized = normalize_selection(selection)
@@ -342,9 +374,9 @@ end
 ---@return opencode.review_queue.Item|nil item
 ---@return string|nil err
 function M.update(id, message)
-  local trimmed = vim.trim(message or "")
-  if trimmed == "" then
-    return nil, "Review message is required"
+  local trimmed, err = validate_message(message)
+  if err or not trimmed then
+    return nil, err
   end
 
   for _, item in ipairs(queue) do
@@ -503,8 +535,23 @@ function M.prompt_for_item_edit(item)
     prompt = "Review message: ",
     title = "Edit " .. item.display_name,
     default = item.message,
-    action_label = "Save",
-  }, function(value)
+    actions = {
+      {
+        name = "save",
+        key = "<c-s>",
+        key_label = "Ctrl-S",
+        label = "Save",
+        mode = { "n", "i" },
+      },
+      {
+        name = "send",
+        key = "<c-cr>",
+        key_label = "Ctrl-Enter",
+        label = "Send",
+        mode = { "n", "i" },
+      },
+    },
+  }, function(value, action)
     if value == nil then
       return
     end
@@ -512,6 +559,11 @@ function M.prompt_for_item_edit(item)
     local updated, err = M.update(item.id, value)
     if err or not updated then
       vim.notify(err or "Review message is required", vim.log.levels.WARN, { title = "opencode" })
+      return
+    end
+
+    if action == "send" then
+      M.send_item(updated)
       return
     end
 
@@ -681,13 +733,15 @@ end
 -- only the sent ids after the backend confirms success. Comments added while a
 -- send is in flight remain queued.
 
-function M.send()
+---@param items opencode.review_queue.Item[]
+---@param success_message string
+---@return boolean started
+local function send_items(items, success_message)
   if sending then
     vim.notify("Review queue send already in progress", vim.log.levels.WARN, { title = "opencode" })
     return false
   end
 
-  local items = M.items()
   if #items == 0 then
     vim.notify("Review queue is empty", vim.log.levels.WARN, { title = "opencode" })
     return false
@@ -700,10 +754,7 @@ function M.send()
 
   sending = true
   local started = review.send_parts(build_parts(items), {
-    success_message = ("Sent %d queued review comment%s to active OpenCode session"):format(
-      #items,
-      #items == 1 and "" or "s"
-    ),
+    success_message = success_message,
     on_success = function()
       sending = false
       for _, id in ipairs(sent_ids) do
@@ -720,6 +771,20 @@ function M.send()
   end
 
   return started
+end
+
+---@param item opencode.review_queue.Item
+---@return boolean started
+function M.send_item(item)
+  return send_items({ item }, "Sent queued review comment to active OpenCode session")
+end
+
+function M.send()
+  local items = M.items()
+  return send_items(
+    items,
+    ("Sent %d queued review comment%s to active OpenCode session"):format(#items, #items == 1 and "" or "s")
+  )
 end
 
 return M
