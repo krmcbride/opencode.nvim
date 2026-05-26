@@ -3,7 +3,7 @@
  *
  * This repository does not keep a full TypeScript toolchain or the OpenCode
  * TUI plugin package's transitive type dependencies installed alongside
- * `opencode-plugin/tui.ts`, so editor tooling cannot resolve the real package
+ * `tui-plugin/tui.ts`, so editor tooling cannot resolve the real package
  * types from here by default.
  *
  * Keep this file intentionally small and limited to the subset of the TUI API

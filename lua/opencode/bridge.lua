@@ -5,7 +5,7 @@
 ---Flow overview:
 ---
 ---  Neovim Lua                  child `opencode attach` TUI
----  (this plugin)               + bundled `opencode-plugin/tui.ts`
+---  (this plugin)               + bundled `tui-plugin/tui.ts`
 ---       ^                                   |
 ---       |  localhost HTTP POST              |
 ---       +---------(this module)-------------+
@@ -15,7 +15,7 @@
 ---
 ---The embedded `opencode attach` terminal runs in a child process, so it cannot
 ---call Neovim Lua directly. Instead, the bundled TUI plugin
----(`opencode-plugin/tui.ts`) reads bridge env vars, posts JSON payloads to a
+---(`tui-plugin/tui.ts`) reads bridge env vars, posts JSON payloads to a
 ---loopback HTTP server owned by this module, and reports:
 ---1. which TUI route/session is currently visible
 ---2. the TUI process cwd

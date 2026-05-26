@@ -1,0 +1,9 @@
+{
+  "name": "opencode-nvim",
+  "type": "module",
+  "main": "./tui-plugin/tui.ts",
+  "exports": {
+    ".": "./tui-plugin/tui.ts",
+    "./tui": "./tui-plugin/tui.ts"
+  }
+}

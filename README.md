@@ -117,11 +117,26 @@ Add it to your OpenCode `tui.json` plugin list, not `opencode.json`:
 
 ```json
 {
+  "$schema": "https://opencode.ai/tui.json",
   "plugin": [
-    "file:///path/to/opencode.nvim/opencode-plugin"
+    "/path/to/opencode.nvim"
   ]
 }
 ```
+
+For a typical `lazy.nvim` install, that path is usually:
+
+```json
+{
+  "$schema": "https://opencode.ai/tui.json",
+  "plugin": [
+    "{env:HOME}/.local/share/nvim/lazy/opencode.nvim"
+  ]
+}
+```
+
+OpenCode does not expand `~` in plugin specs; use an absolute path or `{env:HOME}`.
+The bundled TUI plugin lives in `tui-plugin/` and exports the OpenCode plugin id `opencode-nvim-bridge`.
 
 The bridge plugin is inert unless `opencode.nvim` launches the TUI with its bridge environment variables.
 

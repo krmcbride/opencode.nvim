@@ -13,7 +13,7 @@ M.BRIDGE_PATH = "/opencode/session"
 
 ---Environment variables passed to the embedded TUI so it can publish session
 ---state back to this Neovim instance. Keep these aligned with
----`opencode-plugin/tui.ts`.
+---`tui-plugin/tui.ts`.
 M.BRIDGE_ENV = {
   URL = "OPENCODE_NVIM_BRIDGE_URL",
   TOKEN = "OPENCODE_NVIM_BRIDGE_TOKEN",
