@@ -16,6 +16,7 @@
 ---session.
 local M = {}
 local client = require("opencode.client")
+local config = require("opencode.config")
 local input = require("opencode.input")
 local session = require("opencode.session")
 
@@ -28,12 +29,6 @@ local session = require("opencode.session")
 ---@class opencode.ActiveReviewSession: opencode.SessionState
 ---@field route "session"
 ---@field session_id string
-
----@class opencode.RecentUserInfo
----@field role string
----@field agent? string
----@field model? opencode.ModelRef
----@field variant? string
 
 ---@class opencode.review.SendOpts
 ---@field success_message? string
@@ -225,31 +220,13 @@ local function review_parts(selection, message)
   }
 end
 
----Return the most recent user message metadata from a session message list.
----
----When present, the direct review send reuses the last user-facing agent/model/
----variant so the review goes to the same target the user was already using.
----@param response table
----@return opencode.RecentUserInfo|nil
-local function last_user_info(response)
-  for i = #response, 1, -1 do
-    local item = response[i]
-    if type(item) == "table" and type(item.info) == "table" and item.info.role == "user" then
-      return item.info
-    end
-  end
-
-  return nil
-end
-
 ---Send the prepared review payload to the active backend session.
 ---@param current opencode.ActiveReviewSession
 ---@param parts table[]
----@param prompt_opts? opencode.PromptAsyncOpts
 ---@param send_opts? opencode.review.SendOpts
-local function send_review(current, parts, prompt_opts, send_opts)
+local function send_review(current, parts, send_opts)
   send_opts = send_opts or {}
-  client.prompt_async(current.session_id, parts, prompt_opts, function(err)
+  client.prompt(current.session_id, parts, { delivery = (config.opts.review or {}).delivery or "queue" }, function(err)
     if err then
       vim.notify(err, vim.log.levels.ERROR, { title = "opencode" })
       if send_opts.on_error then
@@ -259,7 +236,7 @@ local function send_review(current, parts, prompt_opts, send_opts)
     end
 
     vim.notify(
-      send_opts.success_message or "Sent review to active OpenCode session",
+      send_opts.success_message or "Review accepted by active OpenCode session",
       vim.log.levels.INFO,
       { title = "opencode" }
     )
@@ -267,31 +244,6 @@ local function send_review(current, parts, prompt_opts, send_opts)
     if send_opts.on_success then
       send_opts.on_success()
     end
-  end)
-end
-
----Fetch recent conversation metadata, then send the review.
----
----If recent messages are unavailable, still send the review scoped to the
----active session and directory.
----@param current opencode.ActiveReviewSession
----@param parts table[]
----@param send_opts? opencode.review.SendOpts
-local function send_with_recent_context(current, parts, send_opts)
-  client.session_messages(current.session_id, { directory = current.cwd, limit = 100 }, function(err, response)
-    if err or type(response) ~= "table" then
-      send_review(current, parts, { directory = current.cwd }, send_opts)
-      return
-    end
-
-    local last_user = last_user_info(response)
-
-    send_review(current, parts, {
-      directory = current.cwd,
-      agent = last_user and last_user.agent or nil,
-      model = last_user and last_user.model or nil,
-      variant = last_user and last_user.variant or nil,
-    }, send_opts)
   end)
 end
 
@@ -311,7 +263,7 @@ function M.send_parts(parts, send_opts)
     return false
   end
 
-  send_with_recent_context(current, parts, send_opts)
+  send_review(current, parts, send_opts)
   return true
 end
 

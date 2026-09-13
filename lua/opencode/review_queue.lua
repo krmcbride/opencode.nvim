@@ -747,18 +747,18 @@ local function send_items(items, success_message)
     return false
   end
 
-  local sent_ids = {}
-  for _, item in ipairs(items) do
-    table.insert(sent_ids, item.id)
-  end
+  local sent = vim.deepcopy(items)
 
   sending = true
   local started = review.send_parts(build_parts(items), {
     success_message = success_message,
     on_success = function()
       sending = false
-      for _, id in ipairs(sent_ids) do
-        M.remove(id)
+      for _, item in ipairs(sent) do
+        local current = M.get(item.id)
+        if current and current.message == item.message then
+          M.remove(item.id)
+        end
       end
       M.refresh_quickfix()
     end,

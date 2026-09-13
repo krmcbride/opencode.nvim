@@ -6,74 +6,12 @@
 -- loaded.
 
 local client = require("opencode.client")
-local config = require("opencode.config")
 local opencode = require("opencode")
 local review_queue = require("opencode.review_queue")
 local terminal = require("opencode.terminal")
+local reload = require("opencode.reload")
 
 local augroup = vim.api.nvim_create_augroup("Opencode", { clear = true })
-
----Normalize a path to its absolute canonical form when possible.
----
----`fs_realpath()` resolves symlinks for existing paths. When that fails (for
----example, a file was deleted between the event and the reload), fall back to a
----normalized absolute path so buffer-name comparisons still work.
----@param path string|nil
----@return string|nil
-local function normalize_path(path)
-  if type(path) ~= "string" or path == "" then
-    return nil
-  end
-
-  local absolute = vim.fn.fnamemodify(path, ":p")
-  return vim.uv.fs_realpath(absolute) or vim.fs.normalize(absolute)
-end
-
----Find loaded buffers whose resolved path matches the given path.
----@param path string|nil
----@return integer[]
-local function matching_buffers(path)
-  local target = normalize_path(path)
-  if not target then
-    return {}
-  end
-
-  ---@type integer[]
-  local matches = {}
-  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-    if vim.api.nvim_buf_is_loaded(buf) then
-      local name = vim.api.nvim_buf_get_name(buf)
-      if name ~= "" and normalize_path(name) == target then
-        table.insert(matches, buf)
-      end
-    end
-  end
-
-  return matches
-end
-
----Run `:checktime` for a specific buffer.
----
----OpenCode's SSE event tells us that a file changed, but that event alone does
----not reload any Neovim buffer. `autoread` only allows reloads when Neovim runs
----a file-change check; `:checktime` is the explicit "check now" step that makes
----Neovim re-stat the file and reload the buffer when it is safe to do so.
----
----When Neovim is currently in Terminal mode, use `:noautocmd checktime` to
----avoid unrelated scheduled autocmd work re-entering Normal mode while the
----embedded TUI owns the terminal.
----@param buf integer
-local function checktime_buffer(buf)
-  if not vim.api.nvim_buf_is_valid(buf) then
-    return
-  end
-
-  local mode = vim.api.nvim_get_mode().mode
-  local command = (mode:sub(1, 1) == "t" and "noautocmd checktime " or "checktime ") .. tostring(buf)
-  pcall(function()
-    vim.cmd(command)
-  end)
-end
 
 -- Stop the embedded attach-mode terminal before Neovim teardown starts.
 vim.api.nvim_create_autocmd("VimLeavePre", {
@@ -131,61 +69,60 @@ vim.api.nvim_create_autocmd({ "BufEnter", "WinEnter" }, {
   desc = "Restore Terminal mode when opencode terminal gains focus",
 })
 
--- Reload matching buffers when the backend reports a file edit.
---
--- `OpencodeEvent:file.edited` and `OpencodeEvent:file.watcher.updated` only tell
--- us that something changed on disk. The actual buffer refresh still depends on
--- Neovim's normal external-file flow:
---
--- - `vim.o.autoread = true` permits reloading an unmodified buffer from disk
--- - `:checktime` performs the file-change check that notices the new mtime
---
--- Without `autoread`, Neovim may detect the change but will not transparently
--- refresh the buffer. Without `:checktime`, Neovim may not notice the change
--- until a later built-in checkpoint like focus or buffer switches.
---
--- Prefer a targeted `checktime {buf}` when the event payload names a file.
--- Fall back to plain `:checktime` when no matching loaded buffer is found.
+-- V2 does not emit every file edit yet. Execution boundaries and reconnects
+-- also check project buffers; modified buffers always remain untouched.
 vim.api.nvim_create_autocmd("User", {
   group = augroup,
-  pattern = { "OpencodeEvent:file.edited", "OpencodeEvent:file.watcher.updated" },
-  ---@param args vim.api.keyset.create_autocmd.callback_args
-  callback = function(args)
-    local opts = config.opts
-    if opts.auto_reload ~= false then
-      if not vim.o.autoread then
-        vim.notify(
-          "Set `vim.o.autoread = true` to enable opencode auto-reload",
-          vim.log.levels.WARN,
-          { title = "opencode" }
-        )
-      else
-        vim.schedule(function()
-          local event = args.data and args.data.event or nil
-          local properties = type(event) == "table" and event.properties or nil
-          local buffers = matching_buffers(type(properties) == "table" and properties.file or nil)
-
-          if #buffers > 0 then
-            for _, buf in ipairs(buffers) do
-              checktime_buffer(buf)
-            end
-            return
-          end
-
-          vim.cmd("checktime")
-        end)
-      end
+  pattern = {
+    "OpencodeEvent:filesystem.changed",
+    "OpencodeEvent:session.tool.success",
+    "OpencodeEvent:session.tool.failed",
+    "OpencodeEvent:session.shell.ended",
+    "OpencodeEvent:session.execution.succeeded",
+    "OpencodeEvent:session.execution.failed",
+    "OpencodeEvent:session.execution.interrupted",
+    "OpencodeEvent:session.revert.committed",
+  },
+  callback = function(ev)
+    local data = ev.data
+    local event = data.event
+    local file = event.type == "filesystem.changed" and event.data.file or nil
+    if type(file) ~= "string" then
+      file = nil
     end
+    reload.request({ file = file, directory = data.directory })
   end,
-  desc = "Reload buffers edited by opencode",
+  desc = "Check buffers after OpenCode file changes or execution settles",
 })
 
--- Re-scope the backend SSE subscription when the attached TUI changes cwd.
+vim.api.nvim_create_autocmd("User", {
+  group = augroup,
+  pattern = "OpencodeResync",
+  callback = function(ev)
+    reload.request({ directory = ev.data.cwd })
+  end,
+  desc = "Check disk state after OpenCode reconnects",
+})
+
+vim.api.nvim_create_autocmd({ "FocusGained", "BufEnter" }, {
+  group = augroup,
+  callback = function()
+    if client.is_connected() then
+      reload.request({ directory = client.get_status().directory })
+    end
+  end,
+  desc = "Check OpenCode project buffers when returning to the editor",
+})
+
+-- The stream stays global; each event uses the current TUI location.
 vim.api.nvim_create_autocmd("User", {
   group = augroup,
   pattern = "OpencodeSessionChanged",
   callback = function()
     client.ensure_subscribed()
+    if client.is_connected() then
+      client.resync()
+    end
   end,
   desc = "Keep opencode SSE subscription aligned with active session directory",
 })

@@ -8,6 +8,7 @@ local M = {}
 ---@field auto_reload? boolean Reload buffers on file.edited (default: true)
 ---@field terminal? opencode.TerminalConfig
 ---@field editor_context? opencode.EditorContextConfig
+---@field review? { delivery?: "queue"|"steer" } Native delivery while the session is busy (default: queue)
 ---@field review_queue? opencode.ReviewQueueConfig
 
 ---@class opencode.ServerConfig
@@ -42,6 +43,7 @@ local defaults = {
   editor_context = {
     enabled = true,
   },
+  review = { delivery = "queue" },
   review_queue = {
     signs = {
       enabled = true,
