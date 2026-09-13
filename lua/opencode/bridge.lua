@@ -4,7 +4,7 @@
 ---
 ---Flow overview:
 ---
----  Neovim Lua                  child `opencode attach` TUI
+---  Neovim Lua                  child `opencode --server` TUI
 ---  (this plugin)               + bundled `tui-plugin/tui.ts`
 ---       ^                                   |
 ---       |  localhost HTTP POST              |
@@ -13,12 +13,12 @@
 ---  Separate path:
 ---  Neovim Lua  <---- HTTP/SSE ---->  OpenCode backend
 ---
----The embedded `opencode attach` terminal runs in a child process, so it cannot
+---The embedded `opencode --server` terminal runs in a child process, so it cannot
 ---call Neovim Lua directly. Instead, the bundled TUI plugin
 ---(`tui-plugin/tui.ts`) reads bridge env vars, posts JSON payloads to a
 ---loopback HTTP server owned by this module, and reports:
 ---1. which TUI route/session is currently visible
----2. the TUI process cwd
+---2. the active session location
 ---3. selected TUI events that Neovim may want to react to
 ---
 ---Active attached-session state is delegated to `opencode.session`.
@@ -35,6 +35,7 @@ local BRIDGE_ENV = constants.BRIDGE_ENV
 ---@field instanceID string|nil
 ---@field route opencode.BridgeRoute|nil
 ---@field sessionID string|nil
+---@field workspaceID? string|nil
 ---@field cwd string|nil
 ---@field kind? "event"|nil
 ---@field event? opencode.Event
@@ -197,6 +198,7 @@ local function update_state(payload)
     route = payload.route,
     session_id = payload.sessionID,
     cwd = payload.cwd,
+    workspace_id = type(payload.workspaceID) == "string" and payload.workspaceID or nil,
     instance_id = state.instance_id,
   })
 end
@@ -216,16 +218,26 @@ local function emit_active_event(payload)
   local route = payload.route == "session" and "session" or "home"
   local session_id = type(payload.sessionID) == "string" and payload.sessionID ~= "" and payload.sessionID or nil
   local cwd = payload.cwd or current.cwd
+  local data = event.data
+  local owner = type(data) == "table" and (data.sessionID or (type(data.form) == "table" and data.form.sessionID))
+  if route ~= "session" or not session_id or owner ~= session_id then
+    return
+  end
+  local instance_id = state.instance_id
 
   vim.schedule(function()
+    if instance_id ~= state.instance_id then
+      return
+    end
     vim.api.nvim_exec_autocmds("User", {
       pattern = "OpencodeActiveEvent:" .. event.type,
       data = {
         event = event,
         route = route,
         session_id = session_id,
-        instance_id = state.instance_id,
+        instance_id = instance_id,
         cwd = cwd,
+        workspace_id = payload.workspaceID,
       },
     })
   end)
@@ -343,7 +355,7 @@ end
 
 ---Ensure the local bridge server exists and return env vars for the child TUI.
 ---
----`opencode.terminal` injects these values into the `opencode attach` process.
+---`opencode.terminal` injects these values into the `opencode --server` process.
 ---The bundled TUI plugin reads them and POSTs state/event payloads back to this
 ---bridge server.
 ---@return table<string, string>

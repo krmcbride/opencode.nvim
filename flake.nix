@@ -24,6 +24,9 @@
           packages = with pkgs; [
             stylua
             typescript
+            bun
+            neovim
+            curl
           ];
         };
       }
