@@ -1,7 +1,7 @@
-import { Plugin } from "@opencode/plugin/tui";
+import type { Plugin } from "@opencode/plugin/tui";
 import { createBridge } from "./bridge";
 
-export default Plugin.define({
+export default {
   id: "opencode-nvim-bridge",
   setup(context) {
     const bridge = createBridge(context, process.env);
@@ -17,4 +17,4 @@ export default Plugin.define({
       bridge.dispose();
     };
   },
-});
+} satisfies Plugin.Definition;
