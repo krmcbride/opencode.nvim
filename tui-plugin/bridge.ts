@@ -122,7 +122,11 @@ export function createBridge(
       const state = currentState(context);
       if (state.route !== "session" || eventSessionID(event) !== state.sessionID) return;
       pending = pending.then(async () => {
+        // Ownership can change while an earlier POST is holding up the queue.
+        const state = currentState(context);
+        if (state.route !== "session" || eventSessionID(event) !== state.sessionID) return;
         if (disposed || !(await publishState(state))) return;
+        if (JSON.stringify(currentState(context)) !== JSON.stringify(state)) return;
         await post({ kind: "event", ...state, event });
       });
     },

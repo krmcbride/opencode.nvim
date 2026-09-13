@@ -105,6 +105,62 @@ describe("native TUI bridge", () => {
     expect(calls).toHaveLength(4);
     next.dispose();
   });
+  test("a queued event cannot restore a session after a newer route sync", async () => {
+    const f = fixture();
+    f.select("ses_one");
+    let release!: () => void;
+    let blocked!: () => void;
+    const waiting = new Promise<void>((resolve) => { blocked = resolve; });
+    const calls: Record<string, any>[] = [];
+    const transport = (async (_url, init) => {
+      calls.push(JSON.parse(init!.body as string));
+      if (calls.length === 2) {
+        await new Promise<void>((resolve) => { release = resolve; blocked(); });
+      }
+      return new Response(null, { status: 200 });
+    }) as typeof fetch;
+    const bridge = createBridge(f.context, env, transport)!;
+    await bridge.sync();
+    bridge.event(event("session.execution.started", "ses_one"));
+    await waiting;
+    const sync = bridge.sync();
+    bridge.event(event("permission.asked", "ses_one"));
+    f.select("ses_two");
+    release();
+    await sync;
+    await bridge.sync();
+    expect(calls.map((x) => [x.kind ?? "state", x.sessionID])).toEqual([
+      ["state", "ses_one"], ["event", "ses_one"], ["state", "ses_two"],
+    ]);
+    bridge.dispose();
+  });
+
+  test("rechecks event ownership after an in-flight state publish", async () => {
+    const f = fixture();
+    f.select("ses_one");
+    let release!: () => void;
+    let blocked!: () => void;
+    const waiting = new Promise<void>((resolve) => { blocked = resolve; });
+    const calls: Record<string, any>[] = [];
+    const transport = (async (_url, init) => {
+      calls.push(JSON.parse(init!.body as string));
+      if (calls.length === 1) {
+        await new Promise<void>((resolve) => { release = resolve; blocked(); });
+      }
+      return new Response(null, { status: 200 });
+    }) as typeof fetch;
+    const bridge = createBridge(f.context, env, transport)!;
+    bridge.event(event("permission.asked", "ses_one"));
+    await waiting;
+    f.select("ses_two");
+    release();
+    await bridge.sync();
+    expect(calls.map((x) => [x.kind ?? "state", x.sessionID])).toEqual([
+      ["state", "ses_one"], ["state", "ses_two"],
+    ]);
+    bridge.dispose();
+  });
+
   test("cleanup aborts an in-flight publish without reporting an error", async () => {
     const f = fixture();
     let signal: AbortSignal | undefined;

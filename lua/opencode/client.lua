@@ -117,13 +117,17 @@ local function schedule_retry()
   if not wanted then
     return
   end
+  local version = generation
   local delay = DELAYS_MS[math.min(attempt + 1, #DELAYS_MS)]
   attempt = attempt + 1
   retry:start(
     delay,
     0,
     vim.schedule_wrap(function()
-      subscribe(false)
+      -- A fired timer can already be queued on the main loop when reset stops it.
+      if wanted and version == generation then
+        subscribe(false)
+      end
     end)
   )
 end
@@ -227,6 +231,9 @@ function M.sse_subscribe(url, callback)
 end
 
 subscribe = function(notify_on_error)
+  if not wanted then
+    return
+  end
   local url = config.get_url()
   if state.url == url and (state.process or state.probe) then
     return
@@ -235,10 +242,13 @@ subscribe = function(notify_on_error)
   state.url = url
   local version = generation
   state.probe = http.request(endpoint(url, "/api/health"), "GET", nil, function(err, value)
-    if version ~= generation or not wanted then
+    if version ~= generation then
       return
     end
     state.probe = nil
+    if not wanted then
+      return
+    end
     if err or not protocol.health(value) then
       if notify_on_error then
         vim.notify(
