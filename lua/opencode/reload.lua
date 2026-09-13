@@ -20,6 +20,15 @@ local function matches(name, request)
   return path == directory or path:sub(1, #directory + 1) == directory .. "/"
 end
 
+local function autoread(buf)
+  local value = vim.api.nvim_get_option_value("autoread", { buf = buf })
+  -- An unset global-local boolean is nil; honor the inherited global value.
+  if value == nil then
+    return vim.go.autoread
+  end
+  return value
+end
+
 function M.request(request)
   if config.opts.auto_reload == false then
     return
@@ -40,7 +49,7 @@ function M.request(request)
         vim.api.nvim_buf_is_loaded(buf)
         and vim.bo[buf].buftype == ""
         and not vim.bo[buf].modified
-        and vim.api.nvim_get_option_value("autoread", { buf = buf })
+        and autoread(buf)
       then
         local name = vim.api.nvim_buf_get_name(buf)
         for _, item in ipairs(requests) do
