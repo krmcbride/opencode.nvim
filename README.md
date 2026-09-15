@@ -1,5 +1,10 @@
 # opencode.nvim
 
+**Requires OpenCode v2 (tested with 2.0.1).** This is a breaking migration from
+v1; existing Neovim commands remain, but the CLI, TUI registration, and event
+contracts change. Read the [migration guide](docs/opencode-v2-compatibility.md)
+before updating. Pin `aa2a146` if you still need v1.
+
 A Neovim plugin for running a local [opencode](https://github.com/anomalyco/opencode) attach-mode TUI inside a [snacks.nvim](https://github.com/folke/snacks.nvim) terminal, with Neovim-side session bridging and local integrations.
 
 ![opencode.nvim showing the attach-mode UI inside Snacks terminal](assets/screenshot.png)
@@ -8,7 +13,7 @@ A Neovim plugin for running a local [opencode](https://github.com/anomalyco/open
 
 ## Features
 
-- Launch a local `opencode attach` TUI against a configured backend server
+- Launch a local `opencode --server` TUI against a configured backend server
 - Bridge the active attached TUI session back into Neovim
 - Share the active Neovim file or visual selection with OpenCode's native editor-context integration
 - Snacks terminal integration for an embedded OpenCode TUI pane
@@ -36,7 +41,7 @@ A Neovim plugin for running a local [opencode](https://github.com/anomalyco/open
       layout = "split",
       width = 0.43,
       env = {
-        -- Extra environment for the child `opencode attach` process
+        -- Extra environment for the child `opencode --server` process
         SOME_CHILD_PROCESS_FLAG = "1",
         -- Disables OpenTUI's Kitty graphics probe so it does not leak raw
         -- probe text into the embedded Snacks terminal buffer.
@@ -79,7 +84,10 @@ require("opencode").setup({
   server = {
     url = "http://127.0.0.1:4096", -- Backend server URL
   },
-  auto_reload = true,          -- Reload matching buffers on OpenCode edit events
+  auto_reload = true,          -- Check unmodified project buffers after edits/runs/reconnects
+  review = {
+    delivery = "queue",        -- While busy: "queue" for the next run, "steer" for the current run
+  },
   editor_context = {
     enabled = true,            -- Share active Neovim file/selection with the embedded OpenCode TUI
   },
@@ -93,7 +101,7 @@ require("opencode").setup({
   },
   terminal = {
     cmd = nil,                -- Optional custom attach command
-    dir = ".",               -- Directory passed to `opencode attach`
+    dir = ".",               -- Positional TUI directory (made absolute at launch)
     continue = true,          -- Default launch behavior; `start` can override per call
     layout = "split",         -- "split" for a right pane, "tab" for a dedicated Neovim tab
     width = 0.35,
@@ -102,43 +110,36 @@ require("opencode").setup({
 })
 ```
 
-> **`terminal.env` note:** `opts.terminal.env` is only passed to the child `opencode attach` process. Backend/server feature flags usually need to be configured on the backend server process itself, not here.
+> **`terminal.env` note:** `opts.terminal.env` is only passed to the child `opencode --server` process. Backend/server feature flags usually need to be configured on the backend server process itself, not here.
 > **Editor context note:** `editor_context.enabled = true` starts a localhost WebSocket server lazily when the embedded TUI starts and injects `OPENCODE_EDITOR_SSE_PORT` into that TUI process. The long-running OpenCode backend server is not involved. If `terminal.env.OPENCODE_EDITOR_SSE_PORT` is already set, that explicit value is left untouched. To keep OpenCode's native integration from accidentally using an inherited Claude Code bridge, `CLAUDE_CODE_SSE_PORT` is cleared in the child TUI env and a warning is shown if a non-empty value is detected.
 > **Embedded terminal note:** `opencode.nvim` runs the OpenCode TUI in a Snacks terminal. Neovim's embedded terminal does not support Kitty graphics, so setting `OPENTUI_GRAPHICS = "0"` under `opts.terminal.env` is recommended to avoid stray raw text like `Gi=31337,s=1,v=1,a=q,t=d,f=24;AAAA` appearing in the terminal buffer.
-> **Auto-reload note:** `auto_reload = true` still depends on Neovim `autoread`; set `vim.o.autoread = true` in your config. External non-OpenCode edits only surface through `OpencodeEvent:file.watcher.updated` when the backend server file watcher is enabled.
-> **Auth note:** backend auth is read from Neovim's `OPENCODE_SERVER_PASSWORD` and optional `OPENCODE_SERVER_USERNAME` environment variables. If you source credentials from a file or secret manager, populate `vim.env` before calling `require("opencode").setup(...)`.
+> **Auto-reload note:** set `vim.o.autoread = true`. V2 does not emit every file edit yet, so the plugin coalesces disk checks after file, tool, shell, execution, and reconnect events, and when returning to the editor. Only loaded, unmodified buffers in the active location are reloaded.
+> **Auth note:** backend auth is read from Neovim's `OPENCODE_PASSWORD`, with `OPENCODE_SERVER_PASSWORD` as a fallback. V2 uses the fixed username `opencode`. The same password is passed to the TUI; credentials belong in Neovim's environment, not only in `terminal.env`. If you source credentials from a file or secret manager, populate `vim.env` before calling `require("opencode").setup(...)`.
 > **Width:** Set terminal width with `opts.terminal.width`.
 > Other terminal behavior uses plugin defaults.
 
 ### OpenCode TUI Plugin
 
-To track the active attached TUI session, OpenCode also needs the bundled TUI bridge plugin.
-Add it to your OpenCode `tui.json` plugin list, not `opencode.json`:
+To track the visible TUI session, register this repository in OpenCode v2's
+`cli.json` (normally `~/.config/opencode/cli.json`):
 
 ```json
 {
-  "$schema": "https://opencode.ai/tui.json",
-  "plugin": [
-    "/path/to/opencode.nvim"
-  ]
+  "$schema": "https://opencode.ai/v2/cli.json",
+  "plugins": ["/absolute/path/to/opencode.nvim"],
+  "prompt": { "editor": true }
 }
 ```
 
-For a typical `lazy.nvim` install, that path is usually:
+For `lazy.nvim`, use the **absolute** path to its `opencode.nvim` directory.
+V2 does not interpolate `{env:HOME}` or expand `~` in this list. Keep `cli.json`
+writable: OpenCode also saves UI preferences there. If you manage configuration
+declaratively, seed the file once or manage a writable copy.
 
-```json
-{
-  "$schema": "https://opencode.ai/tui.json",
-  "plugin": [
-    "{env:HOME}/.local/share/nvim/lazy/opencode.nvim"
-  ]
-}
-```
-
-OpenCode does not expand `~` in plugin specs; use an absolute path or `{env:HOME}`.
-The bundled TUI plugin lives in `tui-plugin/` and exports the OpenCode plugin id `opencode-nvim-bridge`.
-
-The bridge plugin is inert unless `opencode.nvim` launches the TUI with its bridge environment variables.
+The root `tui.ts` entrypoint loads the native TUI bridge definition.
+The plugin id remains `opencode-nvim-bridge`. It is inert when launched outside
+Neovim. End users do not need to run `bun install`; the SDK dependencies are only
+used for development typechecking. Restart the embedded TUI after registering the bridge.
 
 ## API
 
@@ -201,7 +202,7 @@ require("opencode").prompt("Explain this", { clear = true, submit = true })
 
 `mention_selection()` uses OpenCode's native editor-context WebSocket and sends an `at_mentioned` notification directly to the embedded TUI. This is the preferred path for current-line and visual-range mentions because it creates the TUI file mention without writing text through the terminal PTY or relying on autocomplete focus behavior.
 
-`prompt("@this")`, `prompt("@buffer")`, and `prompt("@diagnostics")` use opencode.nvim's older prompt-append path. Keep this path for whole-buffer mentions, diagnostics, directory/file refs from pickers, and compatibility with older OpenCode versions. `mention_selection()` falls back to `prompt("@this")` if the embedded TUI has not connected to the editor-context WebSocket yet, unless called with `{ fallback = false }`.
+`prompt("@this")`, `prompt("@buffer")`, and `prompt("@diagnostics")` use opencode.nvim's older prompt-append path. Keep this path for whole-buffer mentions, diagnostics, directory/file refs from pickers, and other text-based prompt composition. `mention_selection()` falls back to `prompt("@this")` if the embedded TUI has not connected to the editor-context WebSocket yet, unless called with `{ fallback = false }`.
 
 **Context Placeholders:**
 
@@ -239,10 +240,8 @@ require("opencode").clear_review_queue()
 require("opencode").review_queue_count()
 ```
 
-Reviews are sent directly through `POST /session/<sessionID>/prompt_async` using:
-
-- one text part for your comment
-- one ranged file attachment using `file://...?...start=&end=`
+Reviews use `POST /api/session/<sessionID>/prompt` with native `text`, `files`,
+and `delivery`. File URIs preserve one-based inclusive `?start=N&end=M` ranges.
 
 The review popup is a small cursor-anchored editor float:
 
@@ -252,13 +251,23 @@ The review popup is a small cursor-anchored editor float:
 - `q` cancels in normal mode
 - `Enter` inserts a newline
 
-Direct review sends reuse the last persisted user message's `agent`, `model`, and `variant` when available, so they generally match the active session's existing model choice without requiring OpenCode core changes.
+The server uses the session's current agent/model/variant; reviews do not infer
+these from old messages or change them. `review.delivery = "queue"` (the default)
+admits feedback for the next run when busy. Set it to `"steer"` to deliver feedback
+to the running agent. Neither option automatically submits comments from the
+local Neovim review queue.
+
+A successful send means the server durably accepted the input, **not** that the
+agent finished. Queued comments clear only after a valid admission acknowledgement;
+comments added or edited during the request remain. Failed or uncertain requests
+are never retried automatically. If receipt is uncertain, inspect the TUI before
+manually sending again to avoid duplicate feedback.
 
 Queued reviews use the same popup and selection behavior. The queue is process-local and is not persisted across Neovim restarts. Quickfix is only a projection for navigation and source previews; the plugin keeps the actual queue state internally. bqf is optional, but it makes the quickfix queue easier to browse. Loaded buffers also show a sign-column marker on lines with queued comments. For loaded buffers, queued ranges are tracked with Neovim extmarks so quickfix, signs, and sends follow line shifts from edits above the queued range; if those marks are unavailable, the plugin falls back to the originally queued line numbers.
 
 The queue sign defaults to `󰅺` using the `OpencodeReviewQueueSign` highlight group, which links to `DiagnosticWarn` by default. The default marker is a Nerd Font glyph; if your font does not render it, override `review_queue.signs.text` with `O`, `◉`, or another sign-column glyph.
 
-Opening the queue with `open_review_queue()` or `:Opencode review-queue-open` refreshes quickfix with one item per queued comment and a flattened one-line summary for multiline comments. Press `e` in that quickfix list to reopen the selected queued comment in the editor popup, anchored on the queued source location when that file is visible. From a source buffer, `edit_review_queue_comment()` edits the queued comment whose sign is on the current cursor line, and `delete_review_queue_comment()` prompts before deleting that current-line comment. In the edit popup, `Ctrl-S` saves the comment back to the queue and `Ctrl-Enter` sends only that queued comment immediately. Sending one comment uses the same direct one-text-part/one-file-part shape as immediate reviews; sending multiple queued comments uses first-person grouping so OpenCode treats each comment as feedback from you, the user. Sent comments are cleared only after the backend send succeeds; failed sends leave queued comments intact.
+Opening the queue with `open_review_queue()` or `:Opencode review-queue-open` refreshes quickfix with one item per queued comment and a flattened one-line summary for multiline comments. Press `e` in that quickfix list to reopen the selected queued comment in the editor popup, anchored on the queued source location when that file is visible. From a source buffer, `edit_review_queue_comment()` edits the queued comment whose sign is on the current cursor line, and `delete_review_queue_comment()` prompts before deleting that current-line comment. In the edit popup, `Ctrl-S` saves the comment back to the queue and `Ctrl-Enter` sends only that queued comment immediately. Sending one comment uses the same native text and ranged attachment as immediate reviews; sending multiple queued comments uses first-person grouping so OpenCode treats each comment as feedback from you, the user. Sent comments clear only after confirmed admission; failed sends leave them intact.
 
 ## User Commands
 
@@ -277,7 +286,7 @@ Opening the queue with `open_review_queue()` or `:Opencode review-queue-open` re
 
 `opencode.nvim` exposes three useful integration surfaces:
 
-- `OpencodeEvent:*` for backend SSE events in the currently subscribed backend directory
+- `OpencodeEvent:*` for backend SSE events in the active backend location (directory and workspace)
 - `OpencodeActiveEvent:*` for local embedded-TUI events scoped to the currently attached session
 - `OpencodeSessionChanged` for coarse route/session/cwd changes reported by the embedded TUI
 
@@ -294,7 +303,7 @@ vim.api.nvim_create_autocmd("User", {
   pattern = "OpencodeEvent:*",
   callback = function(args)
     local event = args.data.event
-    if event.type == "session.idle" then
+    if event.type == "session.execution.succeeded" then
       vim.notify("opencode finished responding")
     end
   end,
@@ -305,6 +314,7 @@ For `OpencodeEvent:*`, `args.data` includes:
 
 - `event`: the backend SSE event object
 - `url`: the backend base URL that produced the event
+- `directory`, `workspace_id`: the active location used for filtering
 
 ### `OpencodeActiveEvent:*`
 
@@ -314,14 +324,14 @@ This is the most useful surface for integrations that care about the embedded TU
 
 - desktop notifications when the active session goes idle or errors
 - tmux/workmux or window-title status updates while the agent is busy or waiting on a question/permission prompt
-- local UI reactions to `question.asked` / `permission.asked` without watching every backend event globally
+- local UI reactions to `form.created` / `permission.asked` without watching every backend event globally
 
 ```lua
 vim.api.nvim_create_autocmd("User", {
   pattern = "OpencodeActiveEvent:*",
   callback = function(args)
     local event = args.data.event
-    if event.type == "session.idle" then
+    if event.type == "session.execution.succeeded" then
       vim.notify("active embedded OpenCode session is idle")
     end
   end,
@@ -330,16 +340,19 @@ vim.api.nvim_create_autocmd("User", {
 
 `OpencodeActiveEvent:*` comes from the embedded TUI bridge plugin and is scoped to the currently attached session, which makes it suitable for local integrations like notifications, statusline widgets, or tmux/workmux hooks.
 
-Currently forwarded event types:
+Currently forwarded native event types:
 
-- `session.status`
-- `session.idle`
-- `session.error`
-- `message.updated`
-- `permission.asked`
-- `permission.replied`
-- `question.asked`
-- `question.replied`
+- `session.execution.started`, `.succeeded`, `.failed`, `.interrupted`
+- `session.retry.scheduled`
+- `session.inbox.enqueued`, `.delivered`, `.cancelled`
+- `session.agent.selected`, `session.model.selected`
+- `permission.asked`, `permission.replied`
+- `form.created`, `form.replied`, `form.cancelled`
+
+Payloads use `event.data`, not v1's `event.properties`. Ownership is normally
+`event.data.sessionID`; for `form.created` it is `event.data.form.sessionID`.
+Events from other sessions (including child sessions) and global forms are not
+forwarded as active events. V1 event names are not synthesized.
 
 For `OpencodeActiveEvent:*`, `args.data` includes:
 
@@ -347,11 +360,12 @@ For `OpencodeActiveEvent:*`, `args.data` includes:
 - `route`: the local TUI route when the event was observed
 - `session_id`: the local attached session id when available
 - `instance_id`: the Neovim bridge instance id
-- `cwd`: the TUI working directory snapshot
+- `cwd`: the native active session directory (or default location on the home route)
+- `workspace_id`: the native workspace id, when present
 
 ### `OpencodeSessionChanged`
 
-`OpencodeSessionChanged` fires when the local bridge reports that the active embedded TUI route, session id, or cwd changed.
+`OpencodeSessionChanged` fires when the local bridge reports that the active embedded TUI route, session id, cwd, or workspace changed.
 
 This is the right surface for integrations that want coarse session-aware state rather than every individual lifecycle event, for example:
 
@@ -374,7 +388,41 @@ For `OpencodeSessionChanged`, `args.data` includes:
 - `route`: the local TUI route when the event was observed
 - `session_id`: the active embedded OpenCode session id when available
 - `instance_id`: the Neovim bridge instance id
-- `cwd`: the TUI working directory snapshot
+- `cwd`: the native active session directory (or default location on the home route)
+- `workspace_id`: the native workspace id, when present
+
+### Reconnects and session metadata
+
+The native SSE feed is volatile: disconnected clients miss events. A 45-second
+watchdog allows room for its 15-second comment heartbeats. Location filtering
+does not affect connection health. After connecting, `OpencodeResync` requests
+fresh disk checks, and `OpencodeSessionRefreshed` supplies the active session's
+current `Session.Info` as `args.data.session`. These are snapshots, not replayed
+completion/permission notifications.
+
+Notification hooks can use the native helper instead of maintaining their own
+HTTP requests and authentication:
+
+```lua
+require("opencode.client").get_session(session_id, function(err, info)
+  if err then return end
+  -- info.title, info.parentID, info.agent, info.model, info.location, info.outcome
+end)
+```
+
+## Development
+
+```sh
+nix develop --command bun install --frozen-lockfile
+nix develop --command bun run typecheck
+nix develop --command bun run test
+nix develop --command stylua --check lua plugin tests
+```
+
+The tests use a local native HTTP/SSE fixture and headless Neovim. They do not
+contact a model or your OpenCode server. The bridge is typechecked against the
+published v2 SDK. See the [migration and validation guide](docs/opencode-v2-compatibility.md)
+for the separate live-server checks and remaining integration work.
 
 ## Acknowledgments
 

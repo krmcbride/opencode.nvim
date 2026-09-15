@@ -236,7 +236,7 @@ end
 ---
 ---OpenCode output is usually relative to the embedded TUI's cwd, not
 ---necessarily Neovim's current cwd. Prefer the bridged active cwd, then the
----configured terminal dir used to launch `opencode attach`, and only then fall
+---configured terminal dir used to launch `opencode --server`, and only then fall
 ---back to Neovim's cwd/path behavior.
 ---@return string[]
 local function reference_dirs()
@@ -515,20 +515,20 @@ local function normalize_env(env)
   return normalized
 end
 
----Shell-quote a single argument for the generated `opencode attach` command.
+---Shell-quote a single argument for the generated `opencode --server` command.
 ---
 ---This is only used for the generated command path. A custom `terminal.cmd`
 ---bypasses this helper entirely.
 ---@param text string
 ---@return string
 local function quote(text)
-  return '"' .. text:gsub("\\", "\\\\"):gsub('"', '\\"') .. '"'
+  return vim.fn.shellescape(text)
 end
 
 ---Build the environment for the embedded attach-mode process.
 ---
 ---This merges three sources:
----1. user-provided `terminal.env` for the child `opencode attach` process
+---1. user-provided `terminal.env` for the child `opencode --server` process
 ---2. backend auth env inherited from Neovim config
 ---3. bridge env so the TUI can report active-session state back to Neovim
 ---
@@ -544,7 +544,7 @@ local function get_env(opts)
   local bridge_env = bridge.ensure()
 
   if auth then
-    env.OPENCODE_SERVER_USERNAME = auth.username
+    env.OPENCODE_PASSWORD = auth.password
     env.OPENCODE_SERVER_PASSWORD = auth.password
   end
 
@@ -576,7 +576,7 @@ end
 ---Build the command used to launch the embedded terminal.
 ---
 ---If `terminal.cmd` is configured, use it verbatim as the escape hatch. The
----generated path builds `opencode attach ...` from structured config.
+---generated path builds `opencode --server ...` from structured config.
 ---@param target? opencode.TerminalTarget
 ---@param launch_opts? opencode.TerminalLaunchOpts
 ---@return string
@@ -588,10 +588,10 @@ local function get_cmd(target, launch_opts)
   end
 
   local cmd = {
-    "opencode attach",
+    "opencode",
+    "--server",
     quote(config.get_url()),
-    "--dir",
-    quote(terminal.dir or "."),
+    quote(vim.fn.fnamemodify(terminal.dir or ".", ":p")),
   }
   if target.session_id and target.session_id ~= "" then
     table.insert(cmd, "--session")

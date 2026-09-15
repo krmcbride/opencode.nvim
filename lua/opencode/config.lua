@@ -8,14 +8,15 @@ local M = {}
 ---@field auto_reload? boolean Reload buffers on file.edited (default: true)
 ---@field terminal? opencode.TerminalConfig
 ---@field editor_context? opencode.EditorContextConfig
+---@field review? { delivery?: "queue"|"steer" } Native delivery while the session is busy (default: queue)
 ---@field review_queue? opencode.ReviewQueueConfig
 
 ---@class opencode.ServerConfig
 ---@field url? string Backend URL for API and attach mode
 
 ---@class opencode.TerminalConfig
----@field cmd? string Command to run (defaults to generated `opencode attach ...` command)
----@field dir? string Directory argument passed to `opencode attach`
+---@field cmd? string Command to run (defaults to generated `opencode --server ...` command)
+---@field dir? string Directory argument passed to the TUI
 ---@field continue? boolean Default `--continue` behavior for terminal launches (default: true)
 ---@field layout? "split"|"tab" Terminal placement for launches (default: "split")
 ---@field width? number Terminal window width passed to snacks.win.width
@@ -42,6 +43,7 @@ local defaults = {
   editor_context = {
     enabled = true,
   },
+  review = { delivery = "queue" },
   review_queue = {
     signs = {
       enabled = true,
@@ -91,10 +93,11 @@ end
 ---Read backend auth from the standard OpenCode environment variables visible
 ---to the Neovim process.
 ---
----`OPENCODE_SERVER_USERNAME` defaults to `opencode` upstream when omitted.
+---V2 uses the fixed username `opencode`. OPENCODE_PASSWORD takes precedence
+---over the legacy OPENCODE_SERVER_PASSWORD, as it does in the native CLI.
 ---@return { username: string, password: string }|nil
 function M.get_auth()
-  local password = vim.env.OPENCODE_SERVER_PASSWORD
+  local password = vim.env.OPENCODE_PASSWORD or vim.env.OPENCODE_SERVER_PASSWORD
   if password == "" then
     password = nil
   end
@@ -103,7 +106,7 @@ function M.get_auth()
   end
 
   return {
-    username = vim.env.OPENCODE_SERVER_USERNAME or "opencode",
+    username = "opencode",
     password = password,
   }
 end

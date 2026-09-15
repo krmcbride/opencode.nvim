@@ -30,6 +30,7 @@ local M = {}
 ---@class opencode.ActiveSessionUpdate
 ---@field route? opencode.SessionRoute
 ---@field session_id? string|nil OpenCode session id reported by the embedded TUI
+---@field workspace_id? string|nil Native OpenCode workspace identity
 ---@field cwd? string|nil Current working directory reported by the embedded TUI
 ---@field instance_id? string|nil Bridge instance id for the publishing TUI process
 
@@ -38,6 +39,7 @@ local M = {}
 ---@field session_id string|nil Active OpenCode session id currently visible in the embedded TUI
 ---@field target_session_id string|nil OpenCode session id the local terminal should attach/follow
 ---@field instance_id string|nil Bridge instance id for the active embedded TUI process
+---@field workspace_id string|nil Native OpenCode workspace identity
 ---@field cwd string|nil Current working directory reported by the embedded TUI
 ---@field follow_active_session boolean Whether explicit attach mode should follow the active embedded TUI session id
 
@@ -61,6 +63,7 @@ local function emit_changed()
         session_id = state.session_id,
         instance_id = state.instance_id,
         cwd = state.cwd,
+        workspace_id = state.workspace_id,
       },
     })
   end)
@@ -79,11 +82,13 @@ function M.update_active(payload)
   local changed = state.route ~= next_route
     or state.session_id ~= next_session_id
     or state.cwd ~= next_cwd
+    or state.workspace_id ~= payload.workspace_id
     or state.instance_id ~= next_instance_id
 
   state.route = next_route
   state.session_id = next_session_id
   state.cwd = next_cwd
+  state.workspace_id = payload.workspace_id
   state.instance_id = next_instance_id
 
   if state.follow_active_session and next_session_id and next_session_id ~= "" then
@@ -127,6 +132,7 @@ function M.get_state()
     target_session_id = state.target_session_id,
     instance_id = state.instance_id,
     cwd = state.cwd,
+    workspace_id = state.workspace_id,
     follow_active_session = state.follow_active_session,
   }
 end
